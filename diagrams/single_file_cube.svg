@@ -1,0 +1,98 @@
+<svg viewBox="0 0 980 540" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
+  <title>A single GPM IMERG HH HDF5 granule — cube view</title>
+  <desc>Cube diagram of one half-hourly GPM IMERG HDF5 file. The Grid group has dimensions time=1, lon=3600, lat=1800. The lon axis is subdivided into 24 chunks. Four data variables share this shape; their chunking and the coordinate arrays are listed in side panels.</desc>
+
+  <defs>
+    <pattern id="chunks24sf" patternUnits="userSpaceOnUse" x="96.667" y="180" width="16.667" height="200">
+      <line x1="0" y1="0" x2="0" y2="200" stroke="#1e3a8a" stroke-width="0.55" stroke-opacity="0.55"/>
+    </pattern>
+    <marker id="arrSF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <style>
+    .title { font-size: 17px; font-weight: 600; fill: #1f2937; }
+    .sub { font-size: 12px; fill: #6b7280; }
+    .h3 { font-size: 13px; font-weight: 600; fill: #1f2937; }
+    .axis { font-size: 11px; fill: #4b5563; }
+    .axis-dim { font-size: 10.5px; fill: #6b7280; font-family: ui-monospace, Menlo, monospace; }
+    .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; fill: #1f2937; }
+    .mono-sm { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: #4b5563; }
+    .face-front { fill: #dbeafe; stroke: #1d4ed8; stroke-width: 1.2; }
+    .face-top   { fill: #bfdbfe; stroke: #1d4ed8; stroke-width: 1.2; }
+    .face-right { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 1.2; }
+    .panel { fill: #fafaf7; stroke: #d6d3ce; stroke-width: 1; }
+    .virtual-panel { fill: #fff7ed; stroke: #c2410c; stroke-width: 1; }
+    .coord-panel { fill: #ecfdf5; stroke: #047857; stroke-width: 1; }
+    .leader { stroke: #6b7280; stroke-width: 1; fill: none; }
+  </style>
+
+  <text x="490" y="28" text-anchor="middle" class="title">A · Single GPM IMERG HH granule — cube view</text>
+  <text x="490" y="46" text-anchor="middle" class="sub">3B-HHR.MS.MRG.3IMERG.YYYYMMDD-Shhmmss-Ehhmmss.NNNN.V07B.HDF5  ·  Grid group  ·  one 30-min timestep</text>
+
+  <text x="80" y="74" class="h3">Grid group  ·  shape (time=1, lon=3600, lat=1800)</text>
+  <text x="80" y="90" class="mono-sm">dropped: Grid/Intermediate, nv, lonv, latv</text>
+
+  <!-- CUBE -->
+  <!-- 3D origin maps to (80, 380). x=lon (W=400), y=lat (H=200, up), z=time (D=30, back-up). -->
+  <!-- dx = z*cos30 = z*0.866;  dy_screen = -z*sin30 = -z*0.5 -->
+  <!-- Corners: -->
+  <!--   FBL (0,0,0)      = (80, 380) -->
+  <!--   FBR (400,0,0)    = (480, 380) -->
+  <!--   FTR (400,200,0)  = (480, 180) -->
+  <!--   FTL (0,200,0)    = (80, 180) -->
+  <!--   BBL (0,0,30)     = (105.98, 365) -->
+  <!--   BBR (400,0,30)   = (505.98, 365) -->
+  <!--   BTR (400,200,30) = (505.98, 165) -->
+  <!--   BTL (0,200,30)   = (105.98, 165) -->
+
+  <polygon points="80,180 480,180 505.98,165 105.98,165" class="face-top"/>
+  <polygon points="480,380 505.98,365 505.98,165 480,180" class="face-right"/>
+  <rect x="80" y="180" width="400" height="200" class="face-front"/>
+  <rect x="80" y="180" width="400" height="200" fill="url(#chunks24sf)" pointer-events="none"/>
+
+  <!-- lon axis label -->
+  <line x1="80" y1="402" x2="480" y2="402" class="leader" marker-end="url(#arrSF)"/>
+  <text x="280" y="420" text-anchor="middle" class="axis">lon · 3600  →  24 chunks of ~150</text>
+
+  <!-- lat axis label -->
+  <line x1="62" y1="380" x2="62" y2="180" class="leader" marker-end="url(#arrSF)"/>
+  <text x="50" y="280" text-anchor="middle" class="axis" transform="rotate(-90 50 280)">lat · 1800 (1 chunk)</text>
+
+  <!-- time axis label (diagonal into the page) -->
+  <line x1="495" y1="172" x2="525" y2="157" class="leader" marker-end="url(#arrSF)"/>
+  <text x="535" y="156" class="axis">time · 1 (1 chunk)</text>
+
+  <text x="80" y="448" class="mono-sm">Front-face vertical lines = chunk boundaries along lon.  4 variables share these dims (chunking differs only for probLiqPrecip).</text>
+
+  <!-- DATA VARIABLES PANEL -->
+  <rect x="580" y="100" width="380" height="220" rx="8" class="virtual-panel"/>
+  <text x="595" y="123" class="h3">Data variables · 84 chunks/file total</text>
+  <text x="595" y="142" class="mono-sm">stored virtually in icechunk (pointer + byte range)</text>
+
+  <text x="595" y="166" class="mono">precipitation</text>
+  <text x="595" y="180" class="mono-sm">  (1, 3600, 1800)   chunks (1, 145, 1800)   24</text>
+
+  <text x="595" y="204" class="mono">randomError</text>
+  <text x="595" y="218" class="mono-sm">  (1, 3600, 1800)   chunks (1, 145, 1800)   24</text>
+
+  <text x="595" y="242" class="mono">precipitationQualityIndex</text>
+  <text x="595" y="256" class="mono-sm">  (1, 3600, 1800)   chunks (1, 145, 1800)   24</text>
+
+  <text x="595" y="280" class="mono">probabilityLiquidPrecipitation</text>
+  <text x="595" y="294" class="mono-sm">  (1, 3600, 1800)   chunks (1, 291, 1800)   12</text>
+
+  <!-- COORDINATE ARRAYS PANEL -->
+  <rect x="80" y="470" width="880" height="58" rx="8" class="coord-panel"/>
+  <text x="95" y="490" class="h3">Coordinates &amp; bounds (loadable_variables → materialised natively in icechunk)</text>
+  <text x="95" y="510" class="mono">time (1,)   lon (3600,)   lat (1800,)   time_bnds (1,2)   lon_bnds (3600,2)   lat_bnds (1800,2)</text>
+
+  <!-- LEGEND -->
+  <g transform="translate(580, 340)">
+    <rect x="0" y="0" width="14" height="10" class="virtual-panel"/>
+    <text x="20" y="9" class="axis-dim">virtual (HDF5 byte-range refs)</text>
+    <rect x="200" y="0" width="14" height="10" class="coord-panel"/>
+    <text x="220" y="9" class="axis-dim">native (icechunk-owned chunks)</text>
+  </g>
+</svg>

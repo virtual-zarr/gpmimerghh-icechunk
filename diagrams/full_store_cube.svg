@@ -1,0 +1,124 @@
+<svg viewBox="0 0 1100 680" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
+  <title>Final virtual Icechunk store — long cube view</title>
+  <desc>Cube diagram of the final virtual Icechunk store: 473,328 timesteps × 3600 lon × 1800 lat, drawn as one long rod with 27 year-shards along the time axis. Side panels list the four data variables, the coordinate arrays, and the manifest sharding configuration.</desc>
+
+  <defs>
+    <pattern id="yearShards" patternUnits="userSpaceOnUse" x="111.481" y="240" width="31.481" height="140">
+      <line x1="0" y1="0" x2="0" y2="140" stroke="#1e3a8a" stroke-width="0.5" stroke-opacity="0.45"/>
+    </pattern>
+    <marker id="arrFS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <style>
+    .title { font-size: 17px; font-weight: 600; fill: #1f2937; }
+    .sub { font-size: 12px; fill: #6b7280; }
+    .h3 { font-size: 13px; font-weight: 600; fill: #1f2937; }
+    .axis { font-size: 11px; fill: #4b5563; }
+    .axis-dim { font-size: 10.5px; fill: #6b7280; font-family: ui-monospace, Menlo, monospace; }
+    .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; fill: #1f2937; }
+    .mono-sm { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: #4b5563; }
+    .face-front { fill: #dbeafe; stroke: #1d4ed8; stroke-width: 1.2; }
+    .face-top   { fill: #bfdbfe; stroke: #1d4ed8; stroke-width: 1.2; }
+    .face-right { fill: #93c5fd; stroke: #1d4ed8; stroke-width: 1.2; }
+    .chunk-line { stroke: #1e3a8a; stroke-width: 0.5; stroke-opacity: 0.45; fill: none; }
+    .panel { fill: #fafaf7; stroke: #d6d3ce; stroke-width: 1; }
+    .virtual-panel { fill: #fff7ed; stroke: #c2410c; stroke-width: 1; }
+    .coord-panel { fill: #ecfdf5; stroke: #047857; stroke-width: 1; }
+    .leader { stroke: #6b7280; stroke-width: 1; fill: none; }
+  </style>
+
+  <text x="550" y="28" text-anchor="middle" class="title">B · Virtual Icechunk store — long-cube view</text>
+  <text x="550" y="46" text-anchor="middle" class="sub">473,328 half-hours · 3600 lon · 1800 lat · 39,759,552 virtual chunks · 108 data manifests</text>
+
+  <!-- CUBE -->
+  <!-- Origin at (80,380). x=time (W=850), y=lat (H=140 up), z=lon (D=80 back-up). -->
+  <!-- dx = z*0.866, dy = -z*0.5 -->
+
+  <!-- Top face -->
+  <polygon points="80,240 930,240 999.28,200 149.28,200" class="face-top"/>
+  <!-- Representative lon-chunk lines on top face (at depths 16,32,48,64) -->
+  <g class="chunk-line">
+    <line x1="93.86" y1="232" x2="943.86" y2="232"/>
+    <line x1="107.71" y1="224" x2="957.71" y2="224"/>
+    <line x1="121.57" y1="216" x2="971.57" y2="216"/>
+    <line x1="135.42" y1="208" x2="985.42" y2="208"/>
+  </g>
+
+  <!-- Right face -->
+  <polygon points="930,380 999.28,340 999.28,200 930,240" class="face-right"/>
+  <!-- Representative lon-chunk lines on right face -->
+  <g class="chunk-line">
+    <line x1="943.86" y1="372" x2="943.86" y2="232"/>
+    <line x1="957.71" y1="364" x2="957.71" y2="224"/>
+    <line x1="971.57" y1="356" x2="971.57" y2="216"/>
+    <line x1="985.42" y1="348" x2="985.42" y2="208"/>
+  </g>
+
+  <!-- Front face -->
+  <rect x="80" y="240" width="850" height="140" class="face-front"/>
+  <!-- 27 year-shard separation lines (26 lines visible) -->
+  <rect x="80" y="240" width="850" height="140" fill="url(#yearShards)" pointer-events="none"/>
+
+  <!-- Year ticks below front face -->
+  <text x="85" y="396" class="axis-dim">1998</text>
+  <text x="505" y="396" text-anchor="middle" class="axis-dim">2011</text>
+  <text x="925" y="396" text-anchor="end" class="axis-dim">2024</text>
+
+  <!-- time axis arrow -->
+  <line x1="80" y1="414" x2="930" y2="414" class="leader" marker-end="url(#arrFS)"/>
+  <text x="505" y="432" text-anchor="middle" class="axis">time · 473,328 half-hours — sharded into 27 year-manifests per array</text>
+
+  <!-- lat axis arrow -->
+  <line x1="62" y1="380" x2="62" y2="240" class="leader" marker-end="url(#arrFS)"/>
+  <text x="50" y="310" text-anchor="middle" class="axis" transform="rotate(-90 50 310)">lat · 1800 (1 chunk)</text>
+
+  <!-- lon axis arrow (depth, diagonal) -->
+  <line x1="1010" y1="195" x2="1042" y2="179" class="leader" marker-end="url(#arrFS)"/>
+  <text x="1052" y="178" class="axis">lon · 3600</text>
+  <text x="1052" y="192" class="axis-dim">(24 chunks)</text>
+
+  <!-- VARIABLES PANEL -->
+  <rect x="80" y="455" width="320" height="170" rx="8" class="virtual-panel"/>
+  <text x="95" y="478" class="h3">Data variables · 4 × virtual</text>
+  <text x="95" y="495" class="mono-sm">each shape (473328, 3600, 1800)</text>
+  <text x="95" y="518" class="mono">precipitation                  11.36M</text>
+  <text x="95" y="534" class="mono">randomError                    11.36M</text>
+  <text x="95" y="550" class="mono">precipitationQualityIndex      11.36M</text>
+  <text x="95" y="566" class="mono">probabilityLiquidPrecipitation  5.68M</text>
+  <text x="95" y="590" class="mono-sm">refs total: 39,759,552 → byte-ranges</text>
+  <text x="95" y="606" class="mono-sm">in original HDF5 files on S3.</text>
+
+  <!-- COORDINATES PANEL -->
+  <rect x="420" y="455" width="270" height="170" rx="8" class="coord-panel"/>
+  <text x="435" y="478" class="h3">Coordinates · native</text>
+  <text x="435" y="495" class="mono-sm">stored in icechunk directly</text>
+  <text x="435" y="518" class="mono">time      (473328,)</text>
+  <text x="435" y="532" class="mono-sm">  chunk = 17,520 (1 yr) → 27 chunks</text>
+  <text x="435" y="552" class="mono">lon       (3600,)    1 chunk</text>
+  <text x="435" y="568" class="mono">lat       (1800,)    1 chunk</text>
+  <text x="435" y="585" class="mono-sm">time_bnds, lon_bnds, lat_bnds</text>
+  <text x="435" y="599" class="mono-sm">  (small, native)</text>
+
+  <!-- MANIFEST SHARDING PANEL -->
+  <rect x="710" y="455" width="320" height="170" rx="8" class="panel"/>
+  <text x="725" y="478" class="h3">Manifest sharding (icechunk 2.x)</text>
+  <text x="725" y="495" class="mono-sm">set BEFORE first write</text>
+  <text x="725" y="518" class="mono">ManifestSplittingConfig(</text>
+  <text x="725" y="532" class="mono">  split_sizes = {</text>
+  <text x="725" y="546" class="mono">    "*": {"time": 17520}})</text>
+  <text x="725" y="568" class="mono-sm">→ 27 shards × 4 arrays = 108</text>
+  <text x="725" y="584" class="mono-sm">→ ~420k refs / shard</text>
+  <text x="725" y="600" class="mono-sm">→ ~80–200 MB / shard (Arrow)</text>
+
+  <!-- LEGEND -->
+  <g transform="translate(80, 648)">
+    <rect x="0" y="0" width="14" height="10" class="virtual-panel"/>
+    <text x="20" y="9" class="axis-dim">virtual chunks (HDF5 byte-range refs)</text>
+    <rect x="270" y="0" width="14" height="10" class="coord-panel"/>
+    <text x="290" y="9" class="axis-dim">native chunks (icechunk-owned bytes)</text>
+    <rect x="540" y="0" width="14" height="10" class="face-front"/>
+    <text x="560" y="9" class="axis-dim">cube face (year-shard boundary)</text>
+  </g>
+</svg>

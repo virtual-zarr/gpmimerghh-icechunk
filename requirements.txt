@@ -1,0 +1,6 @@
+cftime
+icechunk
+obstore
+virtualizarr[hdf] @ git+https://github.com/zarr-developers/virtualizarr.git@fix/no-fillvalue-attribute
+earthaccess
+obspec_utils

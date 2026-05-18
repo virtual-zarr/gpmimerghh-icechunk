@@ -1,0 +1,270 @@
+<svg viewBox="0 0 1080 1320" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
+  <title>GPM IMERG HH — Single HDF5 file vs. final virtual Icechunk store</title>
+  <desc>Diagram comparing the structure of one half-hourly GPM IMERG HDF5 granule against the stacked virtual Icechunk store built from 473,328 such granules, including a manifest sharding strategy.</desc>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c96442"/>
+    </marker>
+  </defs>
+
+  <style>
+    .h1 { font-size: 18px; font-weight: 600; fill: #1f1f1f; }
+    .h2 { font-size: 14px; font-weight: 600; fill: #1f1f1f; }
+    .h3 { font-size: 12px; font-weight: 600; fill: #1f1f1f; }
+    .lbl { font-size: 11px; fill: #4b5563; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; fill: #1f1f1f; }
+    .mono-sm { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; fill: #4b5563; }
+    .muted { font-size: 10.5px; fill: #6b7280; }
+    .muted-sm { font-size: 9.5px; fill: #6b7280; }
+    .card { fill: #fafaf7; stroke: #d6d3ce; stroke-width: 1; }
+    .panel { fill: #ffffff; stroke: #bfbcb6; stroke-width: 1; }
+    .accent { fill: #f3e7df; stroke: #c96442; stroke-width: 1; }
+    .coord { fill: #f0eee7; stroke: #d6d3ce; stroke-width: 1; }
+    .virtual { fill: #fff7ed; stroke: #c96442; stroke-width: 1; stroke-dasharray: 4 3; }
+    .native  { fill: #eef5ee; stroke: #6b8f6b; stroke-width: 1; }
+    .ml { stroke: #6b7280; stroke-width: 1; fill: none; }
+    .ml-acc { stroke: #c96442; stroke-width: 1.4; fill: none; }
+    .ml-d { stroke: #6b7280; stroke-width: 1; fill: none; stroke-dasharray: 4 3; }
+  </style>
+
+  <text x="540" y="30" text-anchor="middle" class="h1">GPM IMERG HH — Single HDF5 granule → Virtual Icechunk store</text>
+  <text x="540" y="50" text-anchor="middle" class="muted">GPM_3IMERGHH v07 · 30-min cadence · 473,328 granules (1998-01-01 → 2024-12-31) · 84 chunks/file · 39,759,552 virtual chunks total</text>
+
+  <rect x="30" y="75" width="470" height="660" rx="10" class="panel"/>
+  <text x="50" y="100" class="h2">A.  One HDF5 granule  (one 30-min timestep)</text>
+  <text x="50" y="118" class="mono-sm">s3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07/</text>
+  <text x="50" y="132" class="mono-sm">  YYYY/DOY/3B-HHR.MS.MRG.3IMERG.YYYYMMDD-Shhmmss-Ehhmmss.MMMM.V07B.HDF5</text>
+
+  <rect x="50" y="148" width="430" height="26" rx="4" class="card"/>
+  <text x="60" y="165" class="mono">/ (HDF5 root)</text>
+
+  <line x1="65" y1="174" x2="65" y2="195" class="ml"/>
+  <line x1="65" y1="195" x2="80" y2="195" class="ml"/>
+  <rect x="80" y="182" width="400" height="26" rx="4" class="accent"/>
+  <text x="90" y="199" class="mono">Grid/  ← parsed group</text>
+
+  <line x1="65" y1="195" x2="65" y2="225" class="ml-d"/>
+  <line x1="65" y1="225" x2="80" y2="225" class="ml-d"/>
+  <rect x="80" y="212" width="400" height="22" rx="4" fill="#f0eee7" stroke="#d6d3ce" stroke-dasharray="3 3"/>
+  <text x="90" y="227" class="mono-sm">Grid/Intermediate/  ← dropped (drop_variables)</text>
+
+  <text x="95" y="258" class="h3">Coordinates &amp; bounds   (loadable_variables → materialised in Icechunk)</text>
+
+  <g>
+    <rect x="95" y="266" width="385" height="20" rx="3" class="coord"/>
+    <text x="105" y="280" class="mono">time          int32   (1,)        chunk (32,)    0 chunks*</text>
+
+    <rect x="95" y="290" width="385" height="20" rx="3" class="coord"/>
+    <text x="105" y="304" class="mono">lon           float32 (3600,)     chunk (3600,)  1 chunk</text>
+
+    <rect x="95" y="314" width="385" height="20" rx="3" class="coord"/>
+    <text x="105" y="328" class="mono">lat           float32 (1800,)     chunk (1800,)  1 chunk</text>
+
+    <rect x="95" y="338" width="385" height="20" rx="3" class="coord"/>
+    <text x="105" y="352" class="mono">time_bnds     int32   (1, 2)      chunk (32, 2)  0 chunks*</text>
+
+    <rect x="95" y="362" width="385" height="20" rx="3" class="coord"/>
+    <text x="105" y="376" class="mono">lon_bnds      float32 (3600, 2)   chunk (3600,2) 1 chunk</text>
+
+    <rect x="95" y="386" width="385" height="20" rx="3" class="coord"/>
+    <text x="105" y="400" class="mono">lat_bnds      float32 (1800, 2)   chunk (1800,2) 1 chunk</text>
+  </g>
+  <text x="95" y="420" class="muted-sm">* nominal chunk shape declared, but array is smaller — fits in 1 chunk in practice</text>
+
+  <text x="95" y="446" class="h3">Data variables   (referenced as virtual chunks)</text>
+
+  <g>
+    <rect x="95" y="454" width="385" height="22" rx="3" class="virtual"/>
+    <text x="105" y="469" class="mono">precipitation                  (1, 3600, 1800)  (1,145,1800) 24</text>
+
+    <rect x="95" y="480" width="385" height="22" rx="3" class="virtual"/>
+    <text x="105" y="495" class="mono">randomError                    (1, 3600, 1800)  (1,145,1800) 24</text>
+
+    <rect x="95" y="506" width="385" height="22" rx="3" class="virtual"/>
+    <text x="105" y="521" class="mono">precipitationQualityIndex      (1, 3600, 1800)  (1,145,1800) 24</text>
+
+    <rect x="95" y="532" width="385" height="22" rx="3" class="virtual"/>
+    <text x="105" y="547" class="mono">probabilityLiquidPrecipitation (1, 3600, 1800)  (1,291,1800) 12</text>
+  </g>
+
+  <text x="95" y="575" class="lbl">Per-file totals</text>
+  <rect x="95" y="582" width="385" height="44" rx="4" class="card"/>
+  <text x="105" y="599" class="mono">data chunks/file : 24 + 24 + 24 + 12 = 84</text>
+  <text x="105" y="615" class="mono">grid resolution  : 0.1° × 0.1°  (3600 lon × 1800 lat)</text>
+
+  <text x="95" y="650" class="h3">Quirks &amp; fixes</text>
+  <text x="95" y="668" class="mono-sm">• _FillValue must be promoted from CodeMissingValue attr (Zarr v3 encoding)</text>
+  <text x="95" y="684" class="mono-sm">• drop_variables = [Intermediate, nv, lonv, latv]</text>
+  <text x="95" y="700" class="mono-sm">• HDFParser(group="Grid")  +  loadable_variables = all coords</text>
+  <text x="95" y="716" class="mono-sm">• Use virtualizarr ≥ fix/no-fillvalue-attribute branch</text>
+
+  <rect x="540" y="75" width="510" height="660" rx="10" class="panel"/>
+  <text x="560" y="100" class="h2">B.  Virtual Icechunk store  (the cube)</text>
+  <text x="560" y="118" class="mono-sm">icechunk repo · 1 root group · time-concatenated across 473,328 granules</text>
+
+  <rect x="560" y="138" width="470" height="26" rx="4" class="card"/>
+  <text x="570" y="155" class="mono">/ (Zarr v3 root group)</text>
+
+  <text x="575" y="186" class="h3">Coordinates · native Icechunk chunks  (small, fast)</text>
+  <g>
+    <rect x="575" y="194" width="455" height="22" rx="3" class="native"/>
+    <text x="585" y="209" class="mono">time         (473328,)        rechunk (e.g. 17520 = 1yr)  ~27 chunks</text>
+
+    <rect x="575" y="220" width="455" height="22" rx="3" class="native"/>
+    <text x="585" y="235" class="mono">lon          (3600,)          1 chunk</text>
+
+    <rect x="575" y="246" width="455" height="22" rx="3" class="native"/>
+    <text x="585" y="261" class="mono">lat          (1800,)          1 chunk</text>
+
+    <rect x="575" y="272" width="455" height="22" rx="3" class="native"/>
+    <text x="585" y="287" class="mono">time_bnds, lon_bnds, lat_bnds  (small, native)</text>
+  </g>
+
+  <text x="575" y="324" class="h3">Data variables · virtual chunks (point back to HDF5 byte ranges)</text>
+  <g>
+    <rect x="575" y="332" width="455" height="26" rx="3" class="virtual"/>
+    <text x="585" y="349" class="mono">precipitation                  (473328, 3600, 1800)</text>
+    <text x="935" y="349" text-anchor="end" class="mono">11,359,872 chunks</text>
+
+    <rect x="575" y="362" width="455" height="26" rx="3" class="virtual"/>
+    <text x="585" y="379" class="mono">randomError                    (473328, 3600, 1800)</text>
+    <text x="935" y="379" text-anchor="end" class="mono">11,359,872 chunks</text>
+
+    <rect x="575" y="392" width="455" height="26" rx="3" class="virtual"/>
+    <text x="585" y="409" class="mono">precipitationQualityIndex      (473328, 3600, 1800)</text>
+    <text x="935" y="409" text-anchor="end" class="mono">11,359,872 chunks</text>
+
+    <rect x="575" y="422" width="455" height="26" rx="3" class="virtual"/>
+    <text x="585" y="439" class="mono">probabilityLiquidPrecipitation (473328, 3600, 1800)</text>
+    <text x="935" y="439" text-anchor="end" class="mono">5,679,936 chunks</text>
+  </g>
+
+  <text x="575" y="476" class="h3">Manifest sharding strategy  (Icechunk ≥ 2.x splitting config)</text>
+
+  <rect x="575" y="484" width="455" height="142" rx="6" class="accent"/>
+  <text x="585" y="502" class="mono">RepositoryConfig.manifest.preload =</text>
+  <text x="585" y="516" class="mono">  ManifestPreloadConfig(max_total_refs = ...)</text>
+  <text x="585" y="534" class="mono">ManifestConfig.splitting = ManifestSplittingConfig(</text>
+  <text x="585" y="548" class="mono">  split_sizes = {</text>
+  <text x="585" y="562" class="mono">    "precipitation":                  {"time": 17520},</text>
+  <text x="585" y="576" class="mono">    "randomError":                    {"time": 17520},</text>
+  <text x="585" y="590" class="mono">    "precipitationQualityIndex":      {"time": 17520},</text>
+  <text x="585" y="604" class="mono">    "probabilityLiquidPrecipitation": {"time": 17520},</text>
+  <text x="585" y="618" class="mono">  })   # ≈ 1 manifest per array per year  → ~108 manifests</text>
+
+  <text x="575" y="650" class="mono-sm">Per-manifest size ≈ 1 yr × 24 chunks/file × 17,520 files ≈ 420k refs</text>
+  <text x="575" y="666" class="mono-sm">Open dataset loads only the small coord manifest + array metadata —</text>
+  <text x="575" y="682" class="mono-sm">data manifests fetched lazily, in parallel, only when chunks are read.</text>
+
+  <text x="575" y="710" class="muted-sm">Without splitting: single ~9 GB manifest at full scale (3 GB at 11 yr in v1).</text>
+  <text x="575" y="724" class="muted-sm">With splitting:    each manifest ~200–400 MB, parallel-downloadable.</text>
+
+  <line x1="500" y1="500" x2="540" y2="500" class="ml-acc" marker-end="url(#arrAccent)"/>
+  <text x="520" y="492" text-anchor="middle" class="lbl" font-weight="600" fill="#c96442">× 473,328</text>
+  <text x="520" y="514" text-anchor="middle" class="muted-sm">concat on time</text>
+
+  <rect x="30" y="755" width="1020" height="540" rx="10" class="panel"/>
+  <text x="50" y="780" class="h2">C.  Build pipeline  ·  scaling reference generation to 473k files</text>
+
+  <g>
+    <rect x="50" y="800" width="200" height="120" rx="6" class="card"/>
+    <text x="60" y="820" class="h3">1 · Discover</text>
+    <text x="60" y="838" class="mono-sm">earthaccess or deterministic</text>
+    <text x="60" y="852" class="mono-sm">URL builder (one URL per</text>
+    <text x="60" y="866" class="mono-sm">30-min timestep).</text>
+    <text x="60" y="890" class="mono-sm">→ list of 473,328 s3:// URLs</text>
+    <text x="60" y="908" class="muted-sm">Deterministic = no listing</text>
+
+    <rect x="270" y="800" width="200" height="120" rx="6" class="card"/>
+    <text x="280" y="820" class="h3">2 · Parse per file</text>
+    <text x="280" y="838" class="mono-sm">open_virtual_dataset(url,</text>
+    <text x="280" y="852" class="mono-sm">  HDFParser(group="Grid"),</text>
+    <text x="280" y="866" class="mono-sm">  loadable_variables=coords,</text>
+    <text x="280" y="880" class="mono-sm">  registry=registry)</text>
+    <text x="280" y="904" class="muted-sm">~84 virtual refs/file</text>
+
+    <rect x="490" y="800" width="200" height="120" rx="6" class="accent"/>
+    <text x="500" y="820" class="h3">3 · Group &amp; concat</text>
+    <text x="500" y="838" class="mono-sm">batch by year (17,520 files)</text>
+    <text x="500" y="852" class="mono-sm">xr.concat(dim="time",</text>
+    <text x="500" y="866" class="mono-sm">  coords="minimal",</text>
+    <text x="500" y="880" class="mono-sm">  join="override")</text>
+    <text x="500" y="904" class="muted-sm">Keeps worker memory bounded</text>
+
+    <rect x="710" y="800" width="200" height="120" rx="6" class="card"/>
+    <text x="720" y="820" class="h3">4 · Write to Icechunk</text>
+    <text x="720" y="838" class="mono-sm">first year:  to_icechunk(store)</text>
+    <text x="720" y="852" class="mono-sm">next years:  to_icechunk(store,</text>
+    <text x="720" y="866" class="mono-sm">             append_dim="time")</text>
+    <text x="720" y="880" class="mono-sm">session.commit(f"year {y}")</text>
+    <text x="720" y="904" class="muted-sm">~27 commits total</text>
+
+    <rect x="930" y="800" width="100" height="120" rx="6" class="card"/>
+    <text x="940" y="820" class="h3">5 · Verify</text>
+    <text x="940" y="838" class="mono-sm">open_zarr</text>
+    <text x="940" y="852" class="mono-sm">spot-read</text>
+    <text x="940" y="866" class="mono-sm">chunks at</text>
+    <text x="940" y="880" class="mono-sm">random t</text>
+
+    <line x1="250" y1="860" x2="270" y2="860" class="ml" marker-end="url(#arr)"/>
+    <line x1="470" y1="860" x2="490" y2="860" class="ml" marker-end="url(#arr)"/>
+    <line x1="690" y1="860" x2="710" y2="860" class="ml" marker-end="url(#arr)"/>
+    <line x1="910" y1="860" x2="930" y2="860" class="ml" marker-end="url(#arr)"/>
+  </g>
+
+  <text x="50" y="960" class="h3">Scaling guardrails  (lessons from the prior attempt)</text>
+
+  <g>
+    <rect x="50" y="970" width="320" height="160" rx="6" class="card"/>
+    <text x="60" y="990" class="h3">Parallelism</text>
+    <text x="60" y="1010" class="mono-sm">• Coiled / Dask cluster sized so each</text>
+    <text x="60" y="1024" class="mono-sm">  worker holds ≤ 1 month of refs.</text>
+    <text x="60" y="1040" class="mono-sm">• Tree-reduction (db.reduction) so</text>
+    <text x="60" y="1054" class="mono-sm">  no single worker concats all files.</text>
+    <text x="60" y="1070" class="mono-sm">• Per-year commits → checkpoints,</text>
+    <text x="60" y="1084" class="mono-sm">  resumability, smaller blast radius.</text>
+    <text x="60" y="1104" class="mono-sm">• Use S3 (not local FS) for repo —</text>
+    <text x="60" y="1118" class="mono-sm">  safe for concurrent commits.</text>
+
+    <rect x="380" y="970" width="320" height="160" rx="6" class="card"/>
+    <text x="390" y="990" class="h3">Memory at write</text>
+    <text x="390" y="1010" class="mono-sm">• Old pain: appending opens dataset</text>
+    <text x="390" y="1024" class="mono-sm">  + loads full manifest each time.</text>
+    <text x="390" y="1040" class="mono-sm">• Fix in 2.x: manifest splitting →</text>
+    <text x="390" y="1054" class="mono-sm">  Icechunk only fetches the shard</text>
+    <text x="390" y="1068" class="mono-sm">  being appended to.</text>
+    <text x="390" y="1088" class="mono-sm">• Set splitting BEFORE first write,</text>
+    <text x="390" y="1102" class="mono-sm">  or rewrite-manifests after.</text>
+    <text x="390" y="1118" class="mono-sm">• Tune ManifestPreloadConfig low.</text>
+
+    <rect x="710" y="970" width="320" height="160" rx="6" class="card"/>
+    <text x="720" y="990" class="h3">Memory at read</text>
+    <text x="720" y="1010" class="mono-sm">• xr.open_zarr loads metadata +</text>
+    <text x="720" y="1024" class="mono-sm">  preloaded shards only.</text>
+    <text x="720" y="1040" class="mono-sm">• Coord shard is tiny — single fetch.</text>
+    <text x="720" y="1054" class="mono-sm">• Data shards fetched per-query in</text>
+    <text x="720" y="1068" class="mono-sm">  parallel; one year/array at a time.</text>
+    <text x="720" y="1088" class="mono-sm">• group.members() perf fixed in 2.x</text>
+    <text x="720" y="1102" class="mono-sm">  (list_dir no longer post-filters).</text>
+  </g>
+
+  <rect x="50" y="1150" width="980" height="120" rx="6" class="accent"/>
+  <text x="60" y="1172" class="h3">Final scale</text>
+  <text x="60" y="1194" class="mono">files: 473,328     data chunks: 39,759,552     manifests (data, 4 arrays × ~27 yrs): ~108</text>
+  <text x="60" y="1212" class="mono">manifest avg size: ≈ 200–400 MB     coord manifests: ≪ 10 MB     virtual ref total: ~9 GB (un-split)</text>
+  <text x="60" y="1232" class="mono-sm">Split per array + per ~year keeps each shard well below 1 GB so writes &amp; reads scale.</text>
+  <text x="60" y="1252" class="mono-sm">Tune split_sizes once the first few years are written and the per-chunk ref byte cost is measured.</text>
+
+  <g transform="translate(540, 1295)">
+    <rect x="0" y="-12" width="16" height="12" class="native"/>
+    <text x="22" y="-2" class="lbl">native chunks (in Icechunk)</text>
+    <rect x="200" y="-12" width="16" height="12" class="virtual"/>
+    <text x="222" y="-2" class="lbl">virtual chunks (point to HDF5)</text>
+    <rect x="420" y="-12" width="16" height="12" class="accent"/>
+    <text x="442" y="-2" class="lbl">key scaling concern</text>
+  </g>
+</svg>
