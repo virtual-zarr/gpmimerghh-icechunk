@@ -54,18 +54,6 @@ def _native_chunks(var) -> tuple:
         return tuple(var.data.chunks)
     raise ValueError(f"Couldn't determine native chunk shape for variable")
 
-
-def _fill_value(var):
-    """IMERG stores its fill as a 'CodeMissingValue' attr (string); coerce."""
-    fv = var.encoding.get("_FillValue")
-    if fv is not None:
-        return fv
-    cmv = var.attrs.get("CodeMissingValue")
-    if cmv is not None:
-        return var.dtype.type(float(cmv))
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Write everything directly via zarr — one open_group, no xarray
 # ---------------------------------------------------------------------------
@@ -112,7 +100,8 @@ for name, var in sample.data_vars.items():
         shape=(N_TIME, nlon, nlat),
         chunks=chunks,
         dtype=var.dtype,
-        fill_value=_fill_value(var),
+        # TODO: need to check this works
+        fill_value=var.manifest.data.metadata.fillvalue,
         dimension_names=("time", "lon", "lat"),
         serializer=var.data.metadata.codecs[0],
         compressors=var.data.metadata.codecs[1:],
