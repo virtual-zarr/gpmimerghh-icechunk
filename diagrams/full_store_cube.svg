@@ -1,9 +1,9 @@
 <svg viewBox="0 0 1100 680" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
   <title>Final virtual Icechunk store — long cube view</title>
-  <desc>Cube diagram of the final virtual Icechunk store: 473,328 timesteps × 3600 lon × 1800 lat, drawn as one long rod with 27 year-shards along the time axis. Side panels list the four data variables, the coordinate arrays, and the manifest sharding configuration.</desc>
+  <desc>Cube diagram of the final virtual Icechunk store: 486,480 timesteps × 3600 lon × 1800 lat, drawn as one long rod with 28 year-shards along the time axis (1998–2025, last shard is partial through 2025-09-30). Side panels list the four data variables, the coordinate arrays, and the manifest sharding configuration.</desc>
 
   <defs>
-    <pattern id="yearShards" patternUnits="userSpaceOnUse" x="111.481" y="240" width="31.481" height="140">
+    <pattern id="yearShards" patternUnits="userSpaceOnUse" x="110.357" y="240" width="30.357" height="140">
       <line x1="0" y1="0" x2="0" y2="140" stroke="#1e3a8a" stroke-width="0.5" stroke-opacity="0.45"/>
     </pattern>
     <marker id="arrFS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -30,7 +30,7 @@
   </style>
 
   <text x="550" y="28" text-anchor="middle" class="title">B · Virtual Icechunk store — long-cube view</text>
-  <text x="550" y="46" text-anchor="middle" class="sub">473,328 half-hours · 3600 lon · 1800 lat · 39,759,552 virtual chunks · 108 data manifests</text>
+  <text x="550" y="46" text-anchor="middle" class="sub">486,480 half-hours · 3600 lon · 1800 lat · 40,864,320 virtual chunks · 112 data manifests</text>
 
   <!-- CUBE -->
   <!-- Origin at (80,380). x=time (W=850), y=lat (H=140 up), z=lon (D=80 back-up). -->
@@ -64,11 +64,11 @@
   <!-- Year ticks below front face -->
   <text x="85" y="396" class="axis-dim">1998</text>
   <text x="505" y="396" text-anchor="middle" class="axis-dim">2011</text>
-  <text x="925" y="396" text-anchor="end" class="axis-dim">2024</text>
+  <text x="925" y="396" text-anchor="end" class="axis-dim">Sep 2025</text>
 
   <!-- time axis arrow -->
   <line x1="80" y1="414" x2="930" y2="414" class="leader" marker-end="url(#arrFS)"/>
-  <text x="505" y="432" text-anchor="middle" class="axis">time · 473,328 half-hours — sharded into 27 year-manifests per array</text>
+  <text x="505" y="432" text-anchor="middle" class="axis">time · 486,480 half-hours — sharded into 28 year-manifests per array (last is partial 2025)</text>
 
   <!-- lat axis arrow -->
   <line x1="62" y1="380" x2="62" y2="240" class="leader" marker-end="url(#arrFS)"/>
@@ -82,20 +82,20 @@
   <!-- VARIABLES PANEL -->
   <rect x="80" y="455" width="320" height="170" rx="8" class="virtual-panel"/>
   <text x="95" y="478" class="h3">Data variables · 4 × virtual</text>
-  <text x="95" y="495" class="mono-sm">each shape (473328, 3600, 1800)</text>
-  <text x="95" y="518" class="mono">precipitation                  11.36M</text>
-  <text x="95" y="534" class="mono">randomError                    11.36M</text>
-  <text x="95" y="550" class="mono">precipitationQualityIndex      11.36M</text>
-  <text x="95" y="566" class="mono">probabilityLiquidPrecipitation  5.68M</text>
-  <text x="95" y="590" class="mono-sm">refs total: 39,759,552 → byte-ranges</text>
+  <text x="95" y="495" class="mono-sm">each shape (486480, 3600, 1800)</text>
+  <text x="95" y="518" class="mono">precipitation                  11.68M</text>
+  <text x="95" y="534" class="mono">randomError                    11.68M</text>
+  <text x="95" y="550" class="mono">precipitationQualityIndex      11.68M</text>
+  <text x="95" y="566" class="mono">probabilityLiquidPrecipitation  5.84M</text>
+  <text x="95" y="590" class="mono-sm">refs total: 40,864,320 → byte-ranges</text>
   <text x="95" y="606" class="mono-sm">in original HDF5 files on S3.</text>
 
   <!-- COORDINATES PANEL -->
   <rect x="420" y="455" width="270" height="170" rx="8" class="coord-panel"/>
   <text x="435" y="478" class="h3">Coordinates · native</text>
   <text x="435" y="495" class="mono-sm">stored in icechunk directly</text>
-  <text x="435" y="518" class="mono">time      (473328,)</text>
-  <text x="435" y="532" class="mono-sm">  chunk = 17,520 (1 yr) → 27 chunks</text>
+  <text x="435" y="518" class="mono">time      (486480,)</text>
+  <text x="435" y="532" class="mono-sm">  chunk = 17,520 (1 yr) → 28 chunks</text>
   <text x="435" y="552" class="mono">lon       (3600,)    1 chunk</text>
   <text x="435" y="568" class="mono">lat       (1800,)    1 chunk</text>
   <text x="435" y="585" class="mono-sm">time_bnds, lon_bnds, lat_bnds</text>
@@ -108,7 +108,7 @@
   <text x="725" y="518" class="mono">ManifestSplittingConfig(</text>
   <text x="725" y="532" class="mono">  split_sizes = {</text>
   <text x="725" y="546" class="mono">    "*": {"time": 17520}})</text>
-  <text x="725" y="568" class="mono-sm">→ 27 shards × 4 arrays = 108</text>
+  <text x="725" y="568" class="mono-sm">→ 28 shards × 4 arrays = 112</text>
   <text x="725" y="584" class="mono-sm">→ ~420k refs / shard</text>
   <text x="725" y="600" class="mono-sm">→ ~80–200 MB / shard (Arrow)</text>
 
