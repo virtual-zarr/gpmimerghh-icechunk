@@ -11,8 +11,9 @@ from datetime import datetime, timedelta
 from obstore.auth.earthdata import NasaEarthdataCredentialProvider
 
 BASE = "s3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07"
-drop_variables = ["Intermediate", "nv", "lonv", "latv", "time_bnds", "lon_bnds", "lat_bnds"]
+drop_variables = ["Intermediate", "nv", "lonv", "latv"]
 all_coords = ["time", "lon", "lat"]
+coord_bnds = "time_bnds", "lon_bnds", "lat_bnds"
 group = "Grid"
 
 example_link = 's3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07/2025/273/3B-HHR.MS.MRG.3IMERG.20250930-S233000-E235959.1410.V07B.HDF5'
@@ -50,7 +51,7 @@ def open_vds(data_url: str):
       url=data_url,
       parser=parser,
       registry=registry,
-      loadable_variables=all_coords,
+      loadable_variables=all_coords + coord_bnds,
       #decode_times=False
     )
 

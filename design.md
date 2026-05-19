@@ -2,11 +2,11 @@
 
 ## Overivew
 
-A design for a virtual Icechunk store covering the full GPM IMERG Half-Hourly (HH) Final Precipitation record, built with VirtualiZarr, executed on Lithops, and stored in Icechunk on AWS S3.
+This document describes the design for a virtual Icechunk store covering the full GPM IMERG Half-Hourly (HH) Final Precipitation record. The design includes building the store with VirtualiZarr, executing a parallel build on Lithops, and storing the virtual store as an Icechunk store on AWS S3.
 
 ## Goals
 
-- Produce a single ARCO data cube spanning the full GPM IMERG HH record (1998-01-01 to 2025-09-30).
+- Produce a single analysis-ready cloud-optimized data cube spanning the full GPM IMERG HH record (1998-01-01 to 2025-09-30).
 - Use serverless compute (Lithops on AWS Lambda) for parallel virtual-reference generation.
 - Keep individual chunk manifests under ~500 MB by using [Icechunk manifest splitting](https://icechunk.io/en/stable/guides/performance/#splitting-manifests) to make `xr.open_zarr(...)` cheap regardless of total dataset size.
 - Use region writing to enable unsequenced parallelism to virtualize the entire dataset.
@@ -15,13 +15,13 @@ A design for a virtual Icechunk store covering the full GPM IMERG Half-Hourly (H
 
 - Official name: **GPM IMERG Final Precipitation L3 Half Hourly 0.1° × 0.1° V07 (GPM_3IMERGHH)** at GES DISC.
 - S3 bucket: `s3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07/` (us-west-2, NASA requester-pays via Earthdata STS).
-- One HDF5 file per 30-min interval, 48 files/day, 473,328 files through end of 2024.
+- One HDF5 file per 30-min interval, 48 files/day, 486,480 files through September 2025.
 
 ## Single granule structure
 
 ![Single granule cube](diagrams/single_file_cube.svg)
 
-Each HDF5 file contains a `Grid` group (plus a `Grid/Intermediate` group we drop). The Grid group has dimensions `(time=1, lon=3600, lat=1800)` and the variables below. The cube view above shows the lon-chunking of the 24-chunk variables on the front face — the 12-chunk array (`probabilityLiquidPrecipitation`) chunks the same axis half as finely.
+Each HDF5 file contains a `Grid` group (plus a `Grid/Intermediate` group that is dropped). The Grid group has dimensions `(time=1, lon=3600, lat=1800)` and the variables below. The cube view above shows the lon-chunking of the 24-chunk variables on the front face — the 12-chunk array (`probabilityLiquidPrecipitation`) chunks the same axis half as finely.
 
 | variable | dtype | shape | chunk shape | num chunks |
 |---|---|---|---|---|
@@ -38,14 +38,14 @@ Each HDF5 file contains a `Grid` group (plus a `Grid/Intermediate` group we drop
 
 **Fill Value Issue:**
 
-There are 2 fill value concepts, well-detailed [in this VirtualiZarr documentation](https://virtualizarr.readthedocs.io/en/stable/custom_parsers.html#fill-values). The first concept, the "value for uninitialized chunks - (e.g., Zarr fill_value)", is typically parsed from the HDF5 `fill_value` attribute. This attribute is not set on GPM IMERG HH files. A fallback has been introduced in VirtualiZarr but not yet released. That is why, at time of writing, this repository uses the `virtualizarr[hdf] @ git+https://github.com/zarr-developers/virtualizarr.git@fix/problem_fillvalues` branch of VirtualiZarr.
+There are 2 fill value concepts for HDF5 virtual zarr datasets. They are well-detailed [in this VirtualiZarr documentation](https://virtualizarr.readthedocs.io/en/stable/custom_parsers.html#fill-values). The first concept, the "value for uninitialized chunks - (e.g., Zarr fill_value)", is typically parsed from the HDF5 `fill_value` attribute. This attribute is not set on GPM IMERG HH files. A fallback has been introduced in VirtualiZarr but not yet released. That is why, at time of writing, this repository uses the `virtualizarr[hdf] @ git+https://github.com/zarr-developers/virtualizarr.git@fix/problem_fillvalues` branch of VirtualiZarr.
 
-The second fill value concept, the "sentinel value - (e.g., CF _FillValue ))" is present on the HDF5 datasets via dataset attributes. For example, `_FillValue` and `CodeMissingValue` are present on the `precipitation` HDF5 dataset as `-9999.9`.
+The second fill value concept, the "sentinel value - (e.g., CF _FillValue ))" is present on the HDF5 datasets via its attributes. For example, `_FillValue` and `CodeMissingValue` are present on the `precipitation` HDF5 dataset as `-9999.9`.
 
 ## Drop variables, load variables
 
-- `["Intermediate", "nv", "lonv", "latv", "time_bnds", "lon_bnds", "lat_bnds"]` variables are dropped
-- All coordinates (`"time", "lon", "lat"`) are passed as `loadable_variables` so they're materialised natively in Icechunk and not stored as virtual refs.
+- `["Intermediate", "nv", "lonv", "latv"]` variables are dropped
+- All coordinates (`"time", "lon", "lat"`) and small variables (`"time_bnds", "lon_bnds", "lat_bnds"`) are passed as `loadable_variables` so they're materialised natively in Icechunk and not stored as virtual refs.
 
 ## Final virtual Icechunk store
 
@@ -69,17 +69,17 @@ total virtual chunks = 40,864,320
 
 This is a lesson [from the store created with icechunk v1 over a year ago](https://github.com/earth-mover/icechunk-nasa/blob/main/design-docs/icechunk-stores.md): a single monolithic manifest does not scale. At 11 years of data, v1 produced a ~3 GB manifest that had to be fully downloaded on every open and every append.
 
-**Strategy.** Split manifests 1 per year per array. Use the chunk position along `time`, with one shard per year (`17,568` half-hours for leap years).
+**Strategy.** Split manifests 1 per year per array. Use the chunk position along `time`, with one shard per year. NB: This split will not be perfectly aligned with years because of leap years.
 
 ```python
 import icechunk as ic
 
 splitting = ic.ManifestSplittingConfig(
     split_sizes={
-        "precipitation":                  {"time": 17568},
-        "randomError":                    {"time": 17568},
-        "precipitationQualityIndex":      {"time": 17568},
-        "probabilityLiquidPrecipitation": {"time": 17568},
+        "precipitation":                  {"time": 17520},
+        "randomError":                    {"time": 17520},
+        "precipitationQualityIndex":      {"time": 17520},
+        "probabilityLiquidPrecipitation": {"time": 17520},
     }
 )
 preload = ic.ManifestPreloadConfig(max_total_refs=0)  # don't eagerly load data manifests
@@ -90,10 +90,12 @@ config.manifest = ic.ManifestConfig(splitting=splitting, preload=preload)
 
 This produces:
 
-- **27 shards per array × 4 arrays = 108 data manifests.**
-- ~421,632 refs per shard (17568 timesteps × 24 lon-chunks).
+**TODO:** Verify the size estimates
+
+- **28 shards per array × 4 arrays = 112 data manifests.**
+- ~420,480 refs per shard (17520 timesteps × 24 lon-chunks).
 - Roughly **80–200 MB per shard** in Icechunk 2.x's Arrow-style manifest format.
-- A small, separately-stored coordinate manifest (≪ 10 MB).
+- A small, separately-stored coordinate manifest (<10 MB).
 
 **Why this works.** Opening the store with `xr.open_zarr` only needs the array metadata and the coordinate manifest. Reading a slice loads exactly the shard(s) covering that time range, in parallel. Appending a new year touches one shard per array, not the whole record.
 
@@ -103,7 +105,7 @@ This produces:
 
 ## Why region writes (instead of concat + append)
 
-IMERG filenames are **deterministic** (see [`notebooks/helpers.py#url_for`](./notebooks/helpers.py)) and each file maps to exactly one time slice. Any worker can compute a file's time index from its filename alone, so writes parallelize across all files without opening them and without commit collisions — making region writes much cleaner than a serial-append pattern.
+IMERG filenames are **deterministic** (see [`notebooks/helpers.py#url_for`](./notebooks/helpers.py)) and each file maps to exactly one time slice. Any worker can compute a file's time index from its filename alone, so writes parallelize across all files without opening them and without commit collisions. Region writes are safer since they are idempotent and serially appending has the added risk and complication of ensuring the append is happening in the right order (not skipping or duplicating existing indices).
 
 That collapses the build pipeline to: initialize the repo with complete coordinates --> write all regions in parallel. 
 
@@ -111,7 +113,7 @@ That collapses the build pipeline to: initialize the repo with complete coordina
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Stage 0 — Create template repo (one process, runs once)             │
+│ Stage 0 — Initialize repo (one process, runs once)                  │
 │   • Compute full time index                                         │
 │   • Open or create repo with ManifestSplittingConfig set            │
 │   • Initialize empty arrays at final shape (one virtual placeholder)│
@@ -120,7 +122,7 @@ That collapses the build pipeline to: initialize the repo with complete coordina
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Stage 1 — Lithops (fully parallel, ~ thousands of Lambdas)          │
+│ Stage 1 — Lithops (fully parallel via Lambdas)          │
 │   • Each Lambda owns a time range (e.g. one day = 48 files)         │
 │   • Authenticate to Earthdata, fetches short-lived S3 creds         │
 │   • For each file in the Lambda's "region":                         |
@@ -132,13 +134,13 @@ That collapses the build pipeline to: initialize the repo with complete coordina
 
 ### Stage 0 — Initialize
 
-See `template_repo.py`
+See [`template_repo.py`](template_repo.py)
 
 **TODO:** This will need to initialize the repo in an S3 bucket.
 
 ### Stage 1 — Region writes
 
-See `write_day.py`
+See [`write_day.py`](write_day.py)
 
 **TODO:** Re-work this for lithops lambda execution and writing to the same S3 bucket.
 
@@ -186,18 +188,12 @@ A Lambda that crashes mid-way may leave time slices it didn't get to as "empty" 
 
 | stage | workload | peak memory per worker |
 |---|---|---|
-| Stage 0 init | One process, builds time array, writes coords | < 500 MB |
+| Stage 0 Initialize Repo | One process, builds time array, writes coords | < 500 MB |
 | Stage 1 Lambda | 48 files × 84 virtual refs each ≈ 4,032 refs in memory, plus icechunk session state | < 1 GB (2 GB Lambda is comfortable) |
 
 ## Fallback: staged + serial commits
 
 If `virtualizarr.to_icechunk(..., region=...)` doesn't work as advertised, fall back to writing data serially, using `virtualizarr.to_icechunk(..., append_dim="time")`.
-
-Claude suggests using the following tree-reduction strategy:
-
-1. **Stage 1 (Lithops, parallel):** one Lambda per day. Each Lambda concats its 48 virtual datasets into a one-day VDS, serializes (Arrow / pickle of `ManifestArray`s), writes to `s3://staging/day/YYYY-MM-DD.parquet`.
-2. **Stage 2 (Lithops, parallel):** one Lambda per year. Reads 365 day-VDS blobs, concats into a year-VDS, writes to `s3://staging/year/YYYY.parquet`.
-3. **Stage 3 (driver, serial):** for each year, read year-VDS, `vds.vz.to_icechunk(repo, append_dim="time")`, commit.
 
 ## Implementation sequence
 
