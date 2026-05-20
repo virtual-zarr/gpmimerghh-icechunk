@@ -2,14 +2,20 @@
 
 ## Overivew
 
-This document describes the design for a virtual Icechunk store covering the full GPM IMERG Half-Hourly (HH) Final Precipitation record. The design includes building the store with VirtualiZarr, executing a parallel build on Lithops, and storing the virtual store as an Icechunk store on AWS S3.
+This document describes the design for a virtual Icechunk store covering the full GPM IMERG Half-Hourly (HH) Final Precipitation record. The design includes building the store with VirtualiZarr, storing it as Icechunk and executing those operations using [`virtualizarr-data-pipelines`](https://github.com/developmentseed/virtualizarr-data-pipelines).
 
 ## Goals
 
 - Produce a single analysis-ready cloud-optimized data cube spanning the full GPM IMERG HH record (1998-01-01 to 2025-09-30).
-- Use serverless compute (Lithops on AWS Lambda) for parallel virtual-reference generation.
+- Use `virtualizarr-data-pipelines` (SQS + Lambda) for parallel virtual-reference generation.
 - Keep individual chunk manifests under ~500 MB by using [Icechunk manifest splitting](https://icechunk.io/en/stable/guides/performance/#splitting-manifests) to make `xr.open_zarr(...)` cheap regardless of total dataset size.
 - Use region writing to enable unsequenced parallelism to virtualize the entire dataset.
+
+## Non-goals
+
+At time of writing, it is _not_ a goal to create an ongoing icechunk store using the late or early run GPM IMERG product. This may change if it is determined such an ongoing dataset would be useful to users.
+
+The [First FAQ on this page](https://gpm.nasa.gov/data/imerg) describes the different products.
 
 ## About the dataset
 
@@ -44,8 +50,13 @@ The second fill value concept, the "sentinel value - (e.g., CF _FillValue ))" is
 
 ## Drop variables, load variables
 
-- `["Intermediate", "nv", "lonv", "latv"]` variables are dropped
-- All coordinates (`"time", "lon", "lat"`) and small variables (`"time_bnds", "lon_bnds", "lat_bnds"`) are passed as `loadable_variables` so they're materialised natively in Icechunk and not stored as virtual refs.
+The `Intermediate` group plus the auxiliary `nv`, `lonv`, `latv` dimension variables are always dropped — they aren't useful at the analysis-ready cube level.
+
+Coordinates (`time`, `lon`, `lat`) and bounds (`time_bnds`, `lon_bnds`, `lat_bnds`) are handled **differently in Stage 0 vs Stage 1** because we use region writes. The store has to be initialized with full-length, non-virtual coord arrays *before* any region is written; per-file region writes must then leave those coords alone.
+
+**Stage 0 — initialize repo (runs once).** A single granule is opened with `loadable_variables=["time","lon","lat","time_bnds","lon_bnds","lat_bnds"]` so the coordinate values are materialised in memory. We then write the *full-length* coord arrays (`time: 486480`, `lon: 3600`, `lat: 1800`) directly via the zarr API — not via VirtualiZarr — see [`template_repo.py`](template_repo.py). This is the non-VirtualiZarr initialization step that region writes require: the coord arrays exist at their final shape before any region is written.
+
+**Stage 1 — per-file region writes.** Each worker calls `open_virtual_dataset` and then drops **all** coords and bounds before `vds.vz.to_icechunk(..., region={"time": slice(t, t+1)})`. If the per-file `time`, `lon`, or `lat` were left in the dataset, the region write would attempt to overwrite the Stage 0 coord arrays for every file — either clobbering values cell-by-cell or raising a conflict. Bounds are dropped for the same reason. The minimal-overhead pattern is to pass `loadable_variables=[]` and `drop_variables=["Intermediate","nv","lonv","latv","time","lon","lat","time_bnds","lon_bnds","lat_bnds"]` so the HDF parser never reads the coord bytes; falling back to `vds.drop_vars(...)` immediately after open is equivalent and what the reference implementation in [`write_day.py`](write_day.py) does.
 
 ## Final virtual Icechunk store
 
@@ -101,9 +112,23 @@ This produces:
 
 **Critical**: Splitting must be set on the `RepositoryConfig` *before the first write*. If you ever need to retrofit, `rewrite_manifests` lets you re-split an existing repo at the cost of one rewrite.
 
-# Cloud architecture: Lithops + region writes
+# Cloud architecture: `virtualizarr-data-pipelines`
 
-## Why region writes (instead of concat + append)
+## Why `virtualizarr-data-pipelines`
+
+Generating the GPM IMERG half-hourly virtual icechunk store will require writing references for 40 million chunks. This number of chunk writes introduces the potential for various issues which `virtualizarr-data-pipelines` (VDP) is designed to solve:
+
+1. One (1) commit per day of data will generate about 10,000 snapshots (28 years * 365 days / year). While the final configuration of chunks/files-per-commit is TBD, with `virtualizarr-data-pipelines` we will be able to garbage collect snapshots we no longer need.
+2. Given the large number of chunks, we need to be able to set concurrency limits and batch the processing of files + associated commits. Batching will reduce the number of total commits and batching + concurrency limits will reduce the likelihood of conflicts. VDP supports setting a concurrency limit and batch processing.
+3. Given there may still be conflicts, VDP supports retrying through a dead-letter queue with retry configuration error handling through a dead-letter queue redrive and logging.
+
+## Knobs
+
+* `GARBAGE_COLLECTION_FREQUENCY`: What should this be?
+* `BATCH_SIZE`: The batch size will determine how many commits + associated snapshots are created. Perhaps 50 is a good starting point?
+* 
+
+## Why region writes (instead of append)
 
 IMERG filenames are **deterministic** (see [`notebooks/helpers.py#url_for`](./notebooks/helpers.py)) and each file maps to exactly one time slice. Any worker can compute a file's time index from its filename alone, so writes parallelize across all files without opening them and without commit collisions. Region writes are safer since they are idempotent and serially appending has the added risk and complication of ensuring the append is happening in the right order (not skipping or duplicating existing indices).
 
@@ -116,13 +141,13 @@ That collapses the build pipeline to: initialize the repo with complete coordina
 │ Stage 0 — Initialize repo (one process, runs once)                  │
 │   • Compute full time index                                         │
 │   • Open or create repo with ManifestSplittingConfig set            │
-│   • Initialize empty arrays at final shape (one virtual placeholder)│
+│   • Initialize empty arrays at final shape                          │
 │   • Write coord arrays + commit                                     │
 └─────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Stage 1 — Lithops (fully parallel via Lambdas)          │
+│ Stage 1 — Batch + queue files                                       │
 │   • Each Lambda owns a time range (e.g. one day = 48 files)         │
 │   • Authenticate to Earthdata, fetches short-lived S3 creds         │
 │   • For each file in the Lambda's "region":                         |
@@ -134,46 +159,43 @@ That collapses the build pipeline to: initialize the repo with complete coordina
 
 ### Stage 0 — Initialize
 
-See [`template_repo.py`](template_repo.py)
+VDP includes a [trigger once](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/cdk/stack.py#L157-L178) custom resource for the lambda code [here](https://github.com/developmentseed/virtualizarr-data-pipelines/tree/main/lambda/initialize). Since the `initialize_repo` function also gets called by the `process_messages` lambda, we will setup the repo in a separate function that will also get called by the initialize lambda (but not by the `process_messages` lambda).
 
-**TODO:** This will need to initialize the repo in an S3 bucket.
+**TODO:**
 
-### Stage 1 — Region writes
+See [`template_repo.py`](template_repo.py) for the sample code for initializing the repo. This will be a new function in `virtualizarr_processor.processor` that will be imported and called in the [initialize handler](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/initialize/handler.py).
 
-See [`write_day.py`](write_day.py)
+### Stage 1 - Dispatch messages to the queue
 
-**TODO:** Re-work this for lithops lambda execution and writing to the same S3 bucket.
+A script will generate a list of files to process and send those files as messages to the queue. The current VDP system assumes the messages on the queue have a certain records format (probably from an S3 inventory or S3 event notification?). Dispatching messages can probably be another trigger-once lambda. We cannot enable an inventory since we are not the bucket owners. The lambda can list and queue a notification for each file, mimicking the S3 inventory or event notification format.
 
-## Lithops Deployment Requirements
+**TODOs:** Write and integrate this new inventory-mimicking lambda function
+
+### Stage 2 — Batching + Region writes
+
+Each file can be written to a region in parallel and then committed as part of a "batch", enabled by the `batch_processor` function in VDP and configured using `SQS_BATCH_SIZE`. With region writing, the files within a batch do not need to be coordinated. We will start with a batch size of 48.
+
+**TODOS:**
+* Update + test [`write_day.py`](write_day.py) write to the region for just 1 half-hour.
+* Integrate that code as the `process_file` function in VDP.
+
+## Additional Requirements
 
 ### Earthdata Auth
 
-The NASA bucket needs short-lived S3 credentials via `https://data.gesdisc.earthdata.nasa.gov/s3credentials`, which authorizes via Earthdata Login credentisl. Inside lambda:
+The NASA bucket needs short-lived S3 credentials via `https://data.gesdisc.earthdata.nasa.gov/s3credentials`, which authorizes via Earthdata Login credentisl. Inside the lambda:
 
 - Store `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` in Lambda env vars (sourced from Secrets Manager or SSM Parameter Store at deploy time).
 - Each Lambda calls `NasaEarthdataCredentialProvider(credentials_url)` to fetch its own STS creds. Don't pass STS creds in as task arguments — they expire in ~1 hour and the full job will run longer than that.
 - Use the *icechunk-side* `s3_refreshable_credentials(get_credentials=...)` so refreshes happen automatically inside icechunk too.
 
-### Lithops runtime image
-
-The default Lithops runtime won't have `virtualizarr`, `icechunk`, `obstore`, `earthaccess`, `obspec_utils`. Build a custom runtime once:
-
-```bash
-lithops runtime build -f Dockerfile gpm-imerg-runtime
-lithops runtime deploy gpm-imerg-runtime --memory 2048
-```
-
-**TODO:** Create and deploy runtime image with a custom Dockerfile ([example Dockerfile](https://github.com/developmentseed/mursst-icechunk-updater/blob/main/src/Dockerfile)).
-
 ### Failure handling
 
-Region writes are *idempotent*. If you re-run the same Lambda — re-running write_day(k) just overwrites the same chunk refs with the same byte ranges. So the failure protocol is simply: collect failed futures, retry them.
+Region writes are *idempotent*. If you re-run any set of files, the functionality will just overwrite the same chunk refs with the same byte ranges. So the failure protocol is to collect failed executions and retry them.
 
 ### Validation
 
-A Lambda that crashes mid-way may leave time slices it didn't get to as "empty" chunks (which Zarr fills with the configured fill value).
-
-**TODO:** Validate after building by scanning for any timesteps that have an average of the Zarr fill value.
+Validate after building by scanning for any timesteps that have an average of the Zarr fill value.
 
 ### Cost (order of magnitude)
 
