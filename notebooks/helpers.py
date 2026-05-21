@@ -11,21 +11,9 @@ from datetime import datetime, timedelta
 from obstore.auth.earthdata import NasaEarthdataCredentialProvider
 
 BASE = "s3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07"
-
-# Auxiliary variables that we never want in the analysis-ready cube. The
-# `Grid` group plus these dimension/bounds variables are dropped on *every*
-# read.
-AUX_DROP_VARIABLES = ["Intermediate", "nv", "lonv", "latv"]
-
-# Coordinate + bounds variables. In Stage 0 (template init) these are loaded
-# natively so we can extract their values; in Stage 1 (region writes) these
-# are dropped because they're already written in the store.
-COORD_VARIABLES = ["time", "lon", "lat", "time_bnds", "lon_bnds", "lat_bnds"]
-
-# Back-compat aliases for any external code / notebooks still importing these.
-drop_variables = AUX_DROP_VARIABLES
+drop_variables = ["Intermediate", "nv", "lonv", "latv"]
 all_coords = ["time", "lon", "lat"]
-coord_bnds = ("time_bnds", "lon_bnds", "lat_bnds")
+coord_bnds = "time_bnds", "lon_bnds", "lat_bnds"
 group = "Grid"
 
 example_link = 's3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07/2025/273/3B-HHR.MS.MRG.3IMERG.20250930-S233000-E235959.1410.V07B.HDF5'
@@ -51,58 +39,21 @@ def url_for(t: datetime) -> str:
     return f"{BASE}/{t.year:04d}/{t.strftime('%j')}/{name}"
 
 
-def _open_vds(data_url: str, *, drop: list[str], load: list[str]):
-    """Internal: open a granule with explicit drop_variables / loadable_variables.
-
-    All public openers below are thin wrappers around this so the parser /
-    registry / credential setup lives in exactly one place.
-    """
-    data_prefix_url, _ = data_url.rsplit("/", 1)
+def open_vds(data_url: str):
+    data_prefix_url, filename = data_url.rsplit("/", 1)
     store = S3Store.from_url(data_prefix_url, credential_provider=cp)
-    registry = ObjectStoreRegistry({f"s3://{bucket}": store})
-    parser = HDFParser(group="Grid", drop_variables=drop)
+    registry = ObjectStoreRegistry({f"s3://{bucket}": store})    
+    parser = HDFParser(
+        group="Grid",
+        drop_variables=drop_variables,
+    )
     return open_virtual_dataset(
-        url=data_url,
-        parser=parser,
-        registry=registry,
-        loadable_variables=load,
-        # decode_times=False
+      url=data_url,
+      parser=parser,
+      registry=registry,
+      loadable_variables=all_coords + coord_bnds,
+      #decode_times=False
     )
-
-
-def open_vds_with_coords(data_url: str):
-    """Stage 0 / exploratory: returns a vds with coords + bounds loaded natively.
-
-    Use this when you need to *read* the coordinate values — e.g. to extract
-    time/lon/lat into the Stage 0 template, or when poking at a granule in a
-    notebook. Coords come back as concrete numpy arrays; data variables come
-    back as VirtualiZarr ManifestArrays.
-    """
-    return _open_vds(
-        data_url,
-        drop=AUX_DROP_VARIABLES,
-        load=COORD_VARIABLES,
-    )
-
-
-def open_vds_data_only(data_url: str):
-    """Stage 1 / region writes: returns a vds with **only** the 4 data variables.
-
-    Every coordinate and bounds variable is added to `drop_variables` so the
-    HDF parser never reads them, and `loadable_variables` is empty so nothing
-    gets materialised. The result can be written straight into
-    ``region={"time": slice(t, t+1)}`` without any post-hoc ``drop_vars``.
-    """
-    return _open_vds(
-        data_url,
-        drop=AUX_DROP_VARIABLES + COORD_VARIABLES,
-        load=[],
-    )
-
-
-# Back-compat alias. Existing callers (the notebook) get coords + bounds, same
-# as before. New code should pick one of the two functions above.
-open_vds = open_vds_with_coords
 
 def get_prefix_from_url(url: str) -> str:
     """Extract prefix from URL for icechunk."""
