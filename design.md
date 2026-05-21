@@ -2,12 +2,12 @@
 
 ## Overivew
 
-This document describes the design for a virtual Icechunk store covering the full GPM IMERG Half-Hourly (HH) Final Precipitation record. The design includes building the store with VirtualiZarr, storing it as Icechunk and executing those operations using [`virtualizarr-data-pipelines`](https://github.com/developmentseed/virtualizarr-data-pipelines).
+This document describes the design for a cloud-based data pipeline to deliver a virtual Icechunk store covering the full [GPM IMERG Final Precipitation L3 Half Hourly 0.1 degree x 0.1 degree V07 (GPM_3IMERGHH)](https://disc.gsfc.nasa.gov/datasets/GPM_3IMERGHH_07/summary) record.
 
 ## Goals
 
-- Produce a single analysis-ready cloud-optimized data cube spanning the full GPM IMERG HH record (1998-01-01 to 2025-09-30).
-- Use `virtualizarr-data-pipelines` (SQS + Lambda) for parallel virtual-reference generation.
+- Produce a single analysis-ready cloud-optimized (ARCO) data cube spanning the full GPM_3IMERGHH dataset record (1998-01-01 to 2025-09-30).
+- Use `virtualizarr-data-pipelines` (SQS + Lambda) for parallel virtual-reference generation + commit to icechunk.
 - Keep individual chunk manifests under ~500 MB by using [Icechunk manifest splitting](https://icechunk.io/en/stable/guides/performance/#splitting-manifests) to make `xr.open_zarr(...)` cheap regardless of total dataset size.
 - Use region writing to enable unsequenced parallelism to virtualize the entire dataset.
 
@@ -15,7 +15,7 @@ This document describes the design for a virtual Icechunk store covering the ful
 
 At time of writing, it is _not_ a goal to create an ongoing icechunk store using the late or early run GPM IMERG product. This may change if it is determined such an ongoing dataset would be useful to users.
 
-The [First FAQ on this page](https://gpm.nasa.gov/data/imerg) describes the different products.
+The [first FAQ on this page](https://gpm.nasa.gov/data/imerg) describes the different (final, early, and late) GPM IMERG products.
 
 ## About the dataset
 
@@ -54,9 +54,11 @@ The `Intermediate` group plus the auxiliary `nv`, `lonv`, `latv` dimension varia
 
 Coordinates (`time`, `lon`, `lat`) and bounds (`time_bnds`, `lon_bnds`, `lat_bnds`) are handled **differently in Stage 0 vs Stage 1** because we use region writes. The store has to be initialized with full-length, non-virtual coord arrays *before* any region is written; per-file region writes must then leave those coords alone.
 
-**Stage 0 — initialize repo (runs once).** A single granule is opened with `loadable_variables=["time","lon","lat","time_bnds","lon_bnds","lat_bnds"]` so the coordinate values are materialised in memory. We then write the *full-length* coord arrays (`time: 486480`, `lon: 3600`, `lat: 1800`) directly via the zarr API — not via VirtualiZarr — see [`template_repo.py`](template_repo.py). This is the non-VirtualiZarr initialization step that region writes require: the coord arrays exist at their final shape before any region is written.
+**Stage 0 — initialize repo (runs once).** A single granule is opened with `loadable_variables=["time","lon","lat","time_bnds","lon_bnds","lat_bnds"]` so the coordinate values are materialised in memory. We then write the *full-length* coord arrays (`time: 486480`, `lon: 3600`, `lat: 1800`) directly via the zarr API. See [`template_repo.py`](template_repo.py). This is the non-VirtualiZarr initialization step that region writes require: the coord arrays exist at their final shape before any region is written.
 
-**Stage 1 — per-file region writes.** Each worker calls `open_virtual_dataset` and then drops **all** coords and bounds before `vds.vz.to_icechunk(..., region={"time": slice(t, t+1)})`. If the per-file `time`, `lon`, or `lat` were left in the dataset, the region write would attempt to overwrite the Stage 0 coord arrays for every file — either clobbering values cell-by-cell or raising a conflict. Bounds are dropped for the same reason. The minimal-overhead pattern is to pass `loadable_variables=[]` and `drop_variables=["Intermediate","nv","lonv","latv","time","lon","lat","time_bnds","lon_bnds","lat_bnds"]` so the HDF parser never reads the coord bytes; falling back to `vds.drop_vars(...)` immediately after open is equivalent and what the reference implementation in [`write_day.py`](write_day.py) does.
+**TODO:** Test this script returns the expected empty icechunk store.
+
+**Stage 1 — per-file region writes.** Each worker opens its granule with **no coords or bounds at all** and writes the resulting vds straight into `region={"time": slice(t, t+1)}`. If the per-file `time`, `lon`, or `lat` were left in the dataset, the region write would attempt to overwrite the Stage 0 coord arrays for every file — either clobbering values cell-by-cell or raising a conflict. Bounds would do the same. So the per-file vds passes `loadable_variables=[]` and `drop_variables=["Intermediate","nv","lonv","latv","time","lon","lat","time_bnds","lon_bnds","lat_bnds"]` to `open_virtual_dataset` — the HDF parser never even reads the coord bytes, and there's no post-hoc `drop_vars` step. This is encapsulated by `helpers.open_vds_data_only`, which is what [`write_day.py`](write_day.py) uses; the Stage 0 equivalent is `helpers.open_vds_with_coords`.
 
 ## Final virtual Icechunk store
 
@@ -65,7 +67,7 @@ Coordinates (`time`, `lon`, `lat`) and bounds (`time_bnds`, `lon_bnds`, `lat_bnd
 Conceptually the store is one root group with:
 
 - **Four virtual data arrays**, each of shape `(time: 486480, lon: 3600, lat: 1800)`. Chunks are virtual referents to a byte range of an HDF5 file on GES DISC's S3.
-- **Native coordinate arrays.** `time` is the only sizable one — 486,480 int64 values, rechunked to 17,568 per chunk (one year per chunk) so coord reads stay cheap. `lon` and `lat` are single small chunks.
+- **Native coordinate arrays.** `time` is the only sizable one — 486,480 int64 values, rechunked to 17,520 per chunk (one year per chunk) so coord reads stay cheap. `lon` and `lat` are single small chunks.
 
 Per data array:
 
@@ -134,26 +136,40 @@ IMERG filenames are **deterministic** (see [`notebooks/helpers.py#url_for`](./no
 
 That collapses the build pipeline to: initialize the repo with complete coordinates --> write all regions in parallel. 
 
-## Two-stage architecture
+## Three-stage architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Stage 0 — Initialize repo (one process, runs once)                  │
 │   • Compute full time index                                         │
 │   • Open or create repo with ManifestSplittingConfig set            │
-│   • Initialize empty arrays at final shape                          │
+│   • Initialize empty arrays at final shape using example file       │
 │   • Write coord arrays + commit                                     │
+│   • Idempotent: subsequent calls (e.g. from VDP's GC lambda) no-op  │
 └─────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Stage 1 — Batch + queue files                                       │
-│   • Each Lambda owns a time range (e.g. one day = 48 files)         │
-│   • Authenticate to Earthdata, fetches short-lived S3 creds         │
-│   • For each file in the Lambda's "region":                         |
-|       open_virtual_dataset                                          |
-│       write to region                                               │
-│   • Commit                                                          │
+│ Stage 1 — Dispatch messages to the SQS queue (runs once)            │
+│   • Enumerate every (year, day, half-hour) in the target range      │
+│   • Build the corresponding s3:// URL via `helpers.url_for`         │
+│   • send_message_batch(10) onto VDP's input queue, in the format    │
+│     VDP's `process_notification` handler expects                    │
+│   • No bucket listing / S3 inventory needed — filenames are         │
+│     deterministic                                                   │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Stage 2 — Region writes (VDP, runs at SQS scale)                    │
+│   • VDP polls SQS in batches of SQS_BATCH_SIZE                      │
+│   • Authenticate to Earthdata, fetch short-lived S3 creds (once     │
+│     per Lambda cold start, refresh via NasaEarthdataCredentialProvider) │
+│   • For each file in the batch:                                     │
+│       open_vds_data_only(url)   # coords/bounds excluded at parser  │
+│       vds.vz.to_icechunk(session.store, region={"time": slice(...)})│
+│   • One commit per batch (not per file)                             │
+│   • Failures → DLQ for retry/redrive                                │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -167,17 +183,18 @@ See [`template_repo.py`](template_repo.py) for the sample code for initializing 
 
 ### Stage 1 - Dispatch messages to the queue
 
-A script will generate a list of files to process and send those files as messages to the queue. The current VDP system assumes the messages on the queue have a certain records format (probably from an S3 inventory or S3 event notification?). Dispatching messages can probably be another trigger-once lambda. We cannot enable an inventory since we are not the bucket owners. The lambda can list and queue a notification for each file, mimicking the S3 inventory or event notification format.
+A script will generate a list of files to process and send those files as messages to the queue. The current VDP [`process_notification`](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/process_messages/handler.py#L21-L42) function expects messages with a certain structure, so the script will push messages which match that structure. 
 
-**TODOs:** Write and integrate this new inventory-mimicking lambda function
+NB: We cannot enable an inventory since we are not the bucket owners.
+
+**TODOs:** Write and test this new inventory-to-queue script
 
 ### Stage 2 — Batching + Region writes
 
-Each file can be written to a region in parallel and then committed as part of a "batch", enabled by the `batch_processor` function in VDP and configured using `SQS_BATCH_SIZE`. With region writing, the files within a batch do not need to be coordinated. We will start with a batch size of 48.
+Each file can be written to a region and then committed as part of a "batch", enabled by the [`BatchProcessor`](https://fiserv.github.io/aws-lambda-powertools-python/develop/utilities/batch/)  ([see usage in VDS](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/process_messages/handler.py#L17)) class and configured using `SQS_BATCH_SIZE`. With region writing, the files within a batch do not need to be coordinated.
 
 **TODOS:**
-* Update + test [`write_day.py`](write_day.py) write to the region for just 1 half-hour.
-* Integrate that code as the `process_file` function in VDP.
+* Integrate the code in [write_day.py](./write_day.py) as the `process_file` function in VDP.
 
 ## Additional Requirements
 
@@ -210,8 +227,9 @@ Validate after building by scanning for any timesteps that have an average of th
 
 | stage | workload | peak memory per worker |
 |---|---|---|
-| Stage 0 Initialize Repo | One process, builds time array, writes coords | < 500 MB |
-| Stage 1 Lambda | 48 files × 84 virtual refs each ≈ 4,032 refs in memory, plus icechunk session state | < 1 GB (2 GB Lambda is comfortable) |
+| Stage 0 — Initialize Repo | One process, builds the 486,480-element time array, opens one sample granule for metadata, writes coord arrays | < 500 MB |
+| Stage 1 — Dispatch | Iterates ~486k timestamps, builds URLs, sends SQS messages in batches of 10. No HDF5 reads, no virtual refs in memory. | < 128 MB (Lambda min is comfortable) |
+| Stage 2 — Region writes (VDP) | `SQS_BATCH_SIZE` files × 84 virtual refs each, plus icechunk session state for the batch's commit. At batch size 48 ≈ 4,032 refs. | < 1 GB (2 GB Lambda is comfortable) |
 
 ## Fallback: staged + serial commits
 
@@ -233,6 +251,6 @@ Following the TODOs listed above:
 
 - VirtualiZarr: https://github.com/zarr-developers/VirtualiZarr
 - Icechunk: https://icechunk.io
-- Lithops: https://lithops-cloud.github.io
 - Proof of concept: [notebooks/test-imerghh-virtualization.ipynb](./notebooks/test-imerghh-virtualization.ipynb)
 - [Prior design doc (icechunk 1.x): `icechunk-stores.md`](https://github.com/earth-mover/icechunk-nasa/blob/main/design-docs/icechunk-stores.md)
+- [`virtualizarr-data-pipelines`](https://github.com/developmentseed/virtualizarr-data-pipelines)

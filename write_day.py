@@ -1,12 +1,13 @@
 """Stage 1 — per-file region write into the GPM IMERG HH virtual icechunk
 store.
 
-Each half-hour granule is opened with VirtualiZarr, **all coordinates and
-bounds are dropped** (they were already written by Stage 0 / template_repo.py
-via the zarr API), and the remaining 4 data variables are written into
-``region={"time": slice(time_idx, time_idx + 1)}``.
+Each half-hour granule is opened via ``helpers.open_vds_data_only`` so the
+HDF parser only emits the 4 data variables — every coordinate and bounds
+variable is excluded *before* the parser reads it. The resulting vds is
+written straight into ``region={"time": slice(time_idx, time_idx + 1)}`` with
+no further filtering needed.
 
-Dropping every coord + bounds variable is *required* for correctness under
+Excluding every coord + bounds variable is *required* for correctness under
 region writes: leaving `time`, `lon`, `lat`, or `*_bnds` in the per-file vds
 would cause each region write to overwrite the Stage 0 coord arrays
 cell-by-cell (or raise a conflict), depending on alignment.
@@ -21,9 +22,6 @@ from datetime import datetime, timedelta
 from icechunk import Session
 
 from notebooks import helpers
-
-# All coords + bounds Stage 0 wrote natively. Drop these on every region write.
-COORDS_TO_DROP = list(helpers.all_coords) + list(helpers.coord_bnds)
 
 # Epoch used to convert a half-hour timestamp to a time-index into the cube.
 EPOCH = datetime(1998, 1, 1)
@@ -57,10 +55,9 @@ def process_file(file_url: str, session: Session, *, t: datetime | None = None) 
         t = _timestamp_from_url(file_url)
     time_idx = time_index_for(t)
 
-    vds = helpers.open_vds(file_url)
-    # Drop every coord + bounds that Stage 0 wrote. errors="ignore" makes this
-    # safe across granule variants that may not carry every bounds variable.
-    vds = vds.drop_vars(COORDS_TO_DROP, errors="ignore")
+    # data-only opener: coords + bounds are excluded inside the HDF parser
+    # itself, so there's nothing to drop after the fact.
+    vds = helpers.open_vds_data_only(file_url)
     vds.vz.to_icechunk(
         session.store,
         region={"time": slice(time_idx, time_idx + 1)},

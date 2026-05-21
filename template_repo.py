@@ -75,9 +75,10 @@ def initialize_repo() -> ic.Repository:
         dtype="datetime64[ns]",
     )
 
-    # Pull metadata from one sample file. open_vds loads coords + bounds
-    # natively (via loadable_variables) so we can read their values here.
-    sample = helpers.open_vds(helpers.url_for(T0))
+    # Pull metadata from one sample file. open_vds_with_coords loads coords
+    # + bounds natively (via loadable_variables) so we can read their values
+    # here.
+    sample = helpers.open_vds_with_coords(helpers.url_for(T0))
     nlon = sample.sizes["lon"]
     nlat = sample.sizes["lat"]
 
