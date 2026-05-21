@@ -1,8 +1,8 @@
 # GPM IMERG HH Virtual Icechunk Store Design Doc
 
-## Overivew
+## Overview
 
-This document describes the design for a cloud-based data pipeline to deliver a virtual Icechunk store covering the current extent of the [GPM IMERG Final Precipitation L3 Half Hourly 0.1 degree x 0.1 degree V07 (GPM_3IMERGHH)](https://disc.gsfc.nasa.gov/datasets/GPM_3IMERGHH_07/summary) dataset.
+This document describes a cloud pipeline that builds a virtual Icechunk store covering the [GPM IMERG Final Precipitation L3 Half Hourly 0.1° × 0.1° V07 (GPM_3IMERGHH)](https://disc.gsfc.nasa.gov/datasets/GPM_3IMERGHH_07/summary) dataset.
 
 ## Goals
 
@@ -52,8 +52,8 @@ The second fill value concept, the "sentinel value - (e.g., CF _FillValue ))" is
 
 ## Dropped variables and stored variables
 
-* **Dropped variables:** the `Intermediate` group plus the auxiliary `nv`, `lonv`, `latv` dimension variables are always dropped — they aren't useful at the analysis-ready cube level.
-* **Stored coordinate variables:** Coordinates (`time`, `lon`, `lat`) and bounds (`time_bnds`, `lon_bnds`, `lat_bnds`) are stored as native Zarr arrays. Storing coordinate variables as native Zarr arrays makes materializing the structure of the dataset in-memory much more efficient. This means these variables are handled **differently in Stage 0 vs Stage 2:** The store has to be initialized with full-length, non-virtual coord arrays *before* any region is written; per-file region writes must then leave those coords alone.
+* **Dropped:** `Intermediate`, `nv`, `lonv`, `latv` — not useful at the analysis-ready cube level.
+* **Native:** `time`, `lon`, `lat` plus bounds (`time_bnds`, `lon_bnds`, `lat_bnds`) are stored as native Zarr arrays so opening the dataset doesn't pay to materialize coords through virtual refs. These are handled differently in Stage 0 vs Stage 2: Stage 0 writes them at full length *before* any region is written; Stage 2 region writes leave them alone.
 
 ## Final virtual Icechunk store
 
@@ -113,11 +113,11 @@ This produces:
 
 ## Why `virtualizarr-data-pipelines`
 
-Generating the GPM_3IMERGHH virtual icechunk store will require writing references for 40 million chunks. This number of chunk writes introduces the potential for various issues which `virtualizarr-data-pipelines` (VDP) is designed to solve:
+Generating this store means writing references for ~40 million chunks. `virtualizarr-data-pipelines` (VDP) solves three issues that come with that scale:
 
-1. One (1) commit per day of data will generate about 10,000 snapshots (28 years * 365 days / year). While the final configuration of chunks/files-per-commit is TBD, with `virtualizarr-data-pipelines` we will be able to garbage collect snapshots we no longer need.
-2. Given the large number of chunks, we need to be able to set concurrency limits and batch the processing of files + associated commits. Batching will reduce the number of total commits and batching + concurrency limits will reduce the likelihood of conflicts. VDP supports setting a concurrency limit and batch processing.
-3. Given there may still be conflicts, VDP supports retrying through a dead-letter queue with retry configuration error handling through a dead-letter queue redrive and logging.
+1. **Snapshot explosion.** A naive one-commit-per-day cadence produces ~10,000 snapshots. VDP runs scheduled garbage collection so we can keep that under control. Final files-per-commit is TBD.
+2. **Concurrency + batching.** VDP exposes `MAX_CONCURRENCY` and `SQS_BATCH_SIZE`, which together reduce total commit count and the odds of write conflicts.
+3. **Failure retries.** Failed batches go to a DLQ with redrive and structured logging.
 
 ## Knobs
 
@@ -126,9 +126,7 @@ Generating the GPM_3IMERGHH virtual icechunk store will require writing referenc
 
 ## Why region writes (instead of append)
 
-GPM_3IMERGHH filenames are **deterministic** (see [`notebooks/helpers.py#url_for`](./notebooks/helpers.py)) and each file maps to exactly one time slice. Any worker can compute a file's time index from its filename alone, so writes can be parallelized across all files without opening them and without commit collisions. Region writes are safer since they are idempotent and serially appending has the added risk and complication of ensuring the append is happening in the right order (not skipping or duplicating existing indices).
-
-That collapses the build pipeline to: initialize the repo with complete coordinates --> write all regions in parallel. 
+GPM_3IMERGHH filenames are **deterministic** (see [`helpers.url_for`](./notebooks/helpers.py)) — each file maps to exactly one time index, computable from the filename alone. Workers can write all files in parallel, in any order, without opening each one and without commit collisions. Region writes are also idempotent on retry, whereas serial `append_dim` writes have to track ordering to avoid skipped or duplicated indices.
 
 ## Three-stage pipeline
 
@@ -169,32 +167,25 @@ That collapses the build pipeline to: initialize the repo with complete coordina
 
 ### Stage 0 — Initialize
 
-VDP includes a [trigger once](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/cdk/stack.py#L157-L178) custom resource for a lambda to initialize the repo [here](https://github.com/developmentseed/virtualizarr-data-pipelines/tree/main/lambda/initialize). The handler runs the `initialize_repo` function, which is also gets called by the `process_messages` lambda. So we will initialize the repo with empty arrays at the full shape in a separate function that will also get called by the initialize lambda, but not by the `process_messages` lambda.
+[`template_repo.py`](template_repo.py) defines `initialize_repo()`, which becomes the `Processor.initialize_repo` method in `virtualizarr_processor.processor`. VDP calls it from both the [trigger-once initialize handler](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/initialize/handler.py) ([trigger-once custom resource](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/cdk/stack.py#L157-L178)) and the per-batch `process_messages` handler. The function is idempotent (`_is_initialized` checks the commit ancestry), so only the first invocation actually writes the template.
 
-**TODO:**
+### Stage 1 — Dispatch messages to the queue
 
-See [`template_repo.py`](template_repo.py) for the sample code for initializing the repo. This will be a new function in `virtualizarr_processor.processor` that will be imported and called in the [initialize handler](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/initialize/handler.py).
+A one-off script enumerates the timestamps (no listing required — see "Why region writes" above) and pushes messages in the format VDP's [`process_notification`](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/process_messages/handler.py#L21-L42) handler expects. Standard S3 Inventory isn't an option since we don't own the source bucket.
 
-### Stage 1 - Dispatch messages to the queue
+**TODO:** Write and test the dispatch script.
 
-A script will generate a list of files to process and send those files as messages to the queue. The current VDP [`process_notification`](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/process_messages/handler.py#L21-L42) function expects messages with a certain structure, so the script will push messages which match that structure. 
+### Stage 2 — Region writes
 
-NB: We cannot enable an inventory since we are not the bucket owners.
+The batch loop is handled by Powertools' [`BatchProcessor`](https://fiserv.github.io/aws-lambda-powertools-python/develop/utilities/batch/) ([see VDP usage](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/process_messages/handler.py#L17)) with `SQS_BATCH_SIZE` files per Lambda. Region writes don't need ordering within a batch.
 
-**TODOs:** Write and test this new inventory-to-queue script
-
-### Stage 2 — Batching + Region writes
-
-Each file can be written to a region and then committed as part of a "batch", enabled by the [`BatchProcessor`](https://fiserv.github.io/aws-lambda-powertools-python/develop/utilities/batch/)  ([see usage in VDS](https://github.com/developmentseed/virtualizarr-data-pipelines/blob/main/lambda/process_messages/handler.py#L17)) class and configured using `SQS_BATCH_SIZE`. With region writing, the files within a batch do not need to be coordinated.
-
-**TODOS:**
-* Integrate the code in [write_day.py](./write_day.py) as the `process_file` function in VDP.
+**TODO:** Wire [`write_day.py`](./write_day.py)'s `process_file` into `virtualizarr_processor.processor`.
 
 ## Additional Requirements
 
 ### Earthdata Auth
 
-The NASA bucket needs short-lived S3 credentials via `https://data.gesdisc.earthdata.nasa.gov/s3credentials`, which authorizes via Earthdata Login credentisl. Inside the lambda:
+The NASA bucket needs short-lived S3 credentials via `https://data.gesdisc.earthdata.nasa.gov/s3credentials`, which authorizes via Earthdata Login credentials. Inside the lambda:
 
 - Store `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` in Lambda env vars (sourced from Secrets Manager or SSM Parameter Store at deploy time).
 - Each Lambda calls `NasaEarthdataCredentialProvider(credentials_url)` to fetch its own STS creds. Don't pass STS creds in as task arguments — they expire in ~1 hour and the full job will run longer than that.
@@ -202,7 +193,7 @@ The NASA bucket needs short-lived S3 credentials via `https://data.gesdisc.earth
 
 ### Failure handling
 
-Region writes are *idempotent*. If you re-run any set of files, the functionality will just overwrite the same chunk refs with the same byte ranges. So the failure protocol is to collect failed executions and retry them.
+Region writes are *idempotent* — re-running a file overwrites the same chunk refs with the same byte ranges. Failed batches land in VDP's DLQ; retry == redrive.
 
 ### Validation
 
