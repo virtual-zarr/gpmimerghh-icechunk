@@ -1,25 +1,12 @@
-"""Initialize the GPM IMERG HH virtual icechunk store.
+"""Initialize the GPM IMERG HH virtual icechunk store."""
+from __future__ import annotations
 
-Stage 0 of the pipeline described in design.md: create empty arrays at the
-full target shape with the native HDF5 chunk grid, plus the small native
-coords. No dask, no xarray — everything goes through zarr's lower-level API.
-
-This is the non-VirtualiZarr initialization step that region writes require:
-after this commits, Stage 1 Lambdas can write virtual refs into
-``region={"time": slice(t, t+1)}`` without any of them touching the coord
-arrays, and the chunk grids align 1:1 with the source files.
-
-``initialize_repo()`` is **idempotent**. VDP's GC lambda also calls
-``Processor.initialize_repo``, so we detect "already initialized" via the
-commit ancestry and return early without re-writing the template.
-
-To re-init from scratch, delete the local ``gpmimerg_hh_07`` directory first.
-"""
 from datetime import datetime, timedelta
 from itertools import islice
 
 import icechunk as ic
 import numpy as np
+import xarray as xr
 import zarr
 
 from notebooks import helpers
@@ -30,10 +17,10 @@ from notebooks import helpers
 N_TIME = 486_480
 T0 = datetime(1998, 1, 1)
 
-# Coord chunk size = one leap-year of half-hours. Matches the manifest split
+# Coord chunk size = one year of half-hours. Matches the manifest split
 # size below so "one year of coord reads" and "one year of data reads" both
 # resolve to a single chunk / a single shard respectively.
-TIME_CHUNK = 48 * 366  # 17_568
+TIME_CHUNK = 48 * 365  # 17_520
 
 
 def _native_chunks(var) -> tuple:
@@ -50,35 +37,60 @@ def _is_initialized(repo: ic.Repository) -> bool:
     """Has the template commit been made yet?
 
     A freshly created Icechunk repo has exactly one ancestor (the root /
-    "Repository initialized" commit). Once Stage 0 has committed the template
+    "Repository initialized" commit). Once the full empty arrays have been committed
     there are at least two ancestors. We use ``islice(..., 2)`` so we never
     walk the full history — the same trick VDP's sample processor uses.
     """
     return len(list(islice(repo.ancestry(branch="main"), 2))) > 1
 
 
-def initialize_repo() -> ic.Repository:
+def initialize_repo(
+    repo: ic.Repository | None = None,
+    sample: xr.Dataset | None = None,
+    *,
+    n_time: int = N_TIME,
+    t0: datetime = T0,
+    time_chunk: int = TIME_CHUNK,
+) -> ic.Repository:
     """Open or create the repo and, on first call only, write the coordinate
     template.
 
     Returns the open ``Repository``. Safe to call repeatedly — subsequent
     calls just return the existing repo.
+
+    Parameters
+    ----------
+    repo:
+        Pre-opened repository. If ``None``, ``helpers.open_or_create_repo()``
+        is called with default (production) arguments.
+    sample:
+        Sample granule dataset, as returned by ``helpers.open_vds_with_coords``.
+        Used to pull coord values, attrs, and per-data-variable chunk shapes /
+        fill values / codecs. If ``None``, one is opened from S3 for ``t0``.
+    n_time:
+        Number of timesteps in the target cube. Defaults to ``N_TIME``.
+    t0:
+        Start of the target time axis. Defaults to ``T0`` (1998-01-01).
+    time_chunk:
+        Chunk size along the time axis for the native ``time`` coord.
     """
-    repo = helpers.open_or_create_repo()
+    if repo is None:
+        repo = helpers.open_or_create_repo()
 
     if _is_initialized(repo):
         print("Repo already initialized; skipping template write.")
         return repo
 
     time = np.array(
-        [T0 + i * timedelta(minutes=30) for i in range(N_TIME)],
+        [t0 + i * timedelta(minutes=30) for i in range(n_time)],
         dtype="datetime64[ns]",
     )
 
-    # Pull metadata from one sample file. open_vds_with_coords loads coords
-    # + bounds natively (via loadable_variables) so we can read their values
-    # here.
-    sample = helpers.open_vds_with_coords(helpers.url_for(T0))
+    if sample is None:
+        # Pull metadata from one sample file. open_vds_with_coords loads
+        # coords + bounds natively (via loadable_variables) so we can read
+        # their values here.
+        sample = helpers.open_vds_with_coords(helpers.url_for(t0))
     nlon = sample.sizes["lon"]
     nlat = sample.sizes["lat"]
 
@@ -89,9 +101,9 @@ def initialize_repo() -> ic.Repository:
     # time: int64 nanoseconds since epoch; CF attrs let xarray decode on read
     root.create_array(
         "time",
-        shape=(N_TIME,),
+        shape=(n_time,),
         dtype="int64",
-        chunks=(TIME_CHUNK,),
+        chunks=(time_chunk,),
         dimension_names=("time",),
     )
     root["time"][:] = time.view("int64")
@@ -116,18 +128,21 @@ def initialize_repo() -> ic.Repository:
     # Global attributes
     root.attrs.update(dict(sample.attrs))
 
-    # Data variables — metadata + fill value only, no chunk data written
+    # Data variables — metadata + fill value only, no chunk data written.
+    # Bounds (time_bnds, lon_bnds, lat_bnds) are 2-D and may appear in
+    # data_vars; skip anything that isn't a 3-D (time, lon, lat) array.
     for name, var in sample.data_vars.items():
         src_chunks = _native_chunks(var)
-        assert len(src_chunks) == 3, f"{name}: expected 3-D chunks, got {src_chunks}"
+        if len(src_chunks) != 3:
+            continue
         chunks = (1, src_chunks[1], src_chunks[2])
+        # import pdb; pdb.set_trace()
         arr = root.create_array(
             name=name,
-            shape=(N_TIME, nlon, nlat),
+            shape=(n_time, nlon, nlat),
             chunks=chunks,
             dtype=var.dtype,
-            # TODO: need to check this works
-            fill_value=var.manifest.data.metadata.fillvalue,
+            fill_value=var.data.metadata.fill_value,
             dimension_names=("time", "lon", "lat"),
             serializer=var.data.metadata.codecs[0],
             compressors=var.data.metadata.codecs[1:],

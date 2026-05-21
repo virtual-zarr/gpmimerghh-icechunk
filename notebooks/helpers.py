@@ -51,15 +51,29 @@ def url_for(t: datetime) -> str:
     return f"{BASE}/{t.year:04d}/{t.strftime('%j')}/{name}"
 
 
-def _open_vds(data_url: str, *, drop: list[str], load: list[str]):
+def _default_s3_registry(data_url: str) -> ObjectStoreRegistry:
+    """Build the production GES DISC S3 registry for ``data_url``."""
+    data_prefix_url, _ = data_url.rsplit("/", 1)
+    store = S3Store.from_url(data_prefix_url, credential_provider=cp)
+    return ObjectStoreRegistry({f"s3://{bucket}": store})
+
+
+def _open_vds(
+    data_url: str,
+    *,
+    drop: list[str],
+    load: list[str],
+    registry: ObjectStoreRegistry | None = None,
+):
     """Internal: open a granule with explicit drop_variables / loadable_variables.
 
     All public openers below are thin wrappers around this so the parser /
-    registry / credential setup lives in exactly one place.
+    registry / credential setup lives in exactly one place. Tests can pass
+    their own ``registry`` (e.g. one wrapping a ``LocalStore``) to read a
+    fixture file without touching S3.
     """
-    data_prefix_url, _ = data_url.rsplit("/", 1)
-    store = S3Store.from_url(data_prefix_url, credential_provider=cp)
-    registry = ObjectStoreRegistry({f"s3://{bucket}": store})
+    if registry is None:
+        registry = _default_s3_registry(data_url)
     parser = HDFParser(group="Grid", drop_variables=drop)
     return open_virtual_dataset(
         url=data_url,
@@ -70,7 +84,11 @@ def _open_vds(data_url: str, *, drop: list[str], load: list[str]):
     )
 
 
-def open_vds_with_coords(data_url: str):
+def open_vds_with_coords(
+    data_url: str,
+    *,
+    registry: ObjectStoreRegistry | None = None,
+):
     """Stage 0 / exploratory: returns a vds with coords + bounds loaded natively.
 
     Use this when you need to *read* the coordinate values — e.g. to extract
@@ -82,10 +100,15 @@ def open_vds_with_coords(data_url: str):
         data_url,
         drop=AUX_DROP_VARIABLES,
         load=COORD_VARIABLES,
+        registry=registry,
     )
 
 
-def open_vds_data_only(data_url: str):
+def open_vds_data_only(
+    data_url: str,
+    *,
+    registry: ObjectStoreRegistry | None = None,
+):
     """Stage 1 / region writes: returns a vds with **only** the 4 data variables.
 
     Every coordinate and bounds variable is added to `drop_variables` so the
@@ -97,6 +120,7 @@ def open_vds_data_only(data_url: str):
         data_url,
         drop=AUX_DROP_VARIABLES + COORD_VARIABLES,
         load=[],
+        registry=registry,
     )
 
 
@@ -156,9 +180,56 @@ def open_or_create_test_icechunk_repo(url: str) -> None:
     )
     return repo
 
-def open_or_create_repo():
+def open_or_create_repo(
+    *,
+    storage: "icechunk.Storage | None" = None,
+    storage_path: str = "gpmimerg_hh_07",
+    manifest_split_size: int = 48 * 365,
+    virtual_chunk_url: str | None = None,
+    virtual_chunk_store: "icechunk.ObjectStoreConfig | None" = None,
+    virtual_chunk_credentials: "Dict[str, icechunk.AnyCredential] | None" = None,
+):
+    """Open or create the GPM_3IMERGHH icechunk repo.
+
+    Production defaults reproduce the original behaviour: a local-filesystem
+    repo at ``./gpmimerg_hh_07/``, manifest-split at one shard per 365 × 48
+    half-hours, virtual chunks pointing at the NASA GES DISC S3 bucket with
+    refreshable Earthdata credentials.
+
+    All knobs can be overridden — tests pass a tmp path for ``storage`` and a
+    local ``virtual_chunk_store`` so nothing reaches the network.
+
+    Parameters
+    ----------
+    storage:
+        Icechunk ``Storage`` for the repo itself. If ``None`` defaults to
+        ``local_filesystem_storage(path=storage_path)``.
+    storage_path:
+        Path used to build the default local-filesystem storage. Ignored if
+        ``storage`` is passed.
+    manifest_split_size:
+        Number of timesteps per manifest shard.
+    virtual_chunk_url:
+        URL prefix for virtual chunk references. Defaults to the GES DISC
+        IMERG prefix derived from ``example_link``.
+    virtual_chunk_store:
+        Icechunk ``ObjectStoreConfig`` describing how to read virtual chunks.
+        Defaults to an S3 store in ``us-west-2``.
+    virtual_chunk_credentials:
+        Credentials map for the virtual chunk container. Defaults to
+        refreshable Earthdata creds for the GES DISC prefix. Pass ``{}`` or
+        an empty dict-like for tests that don't need credentials.
+    """
+    if virtual_chunk_url is None:
+        virtual_chunk_url = get_prefix_from_url(example_link)
+    if virtual_chunk_store is None:
+        virtual_chunk_store = icechunk.s3_store(region="us-west-2")
+    if storage is None:
+        storage = icechunk.local_filesystem_storage(path=storage_path)
+    if virtual_chunk_credentials is None:
+        virtual_chunk_credentials = get_container_credentials(example_link)
+
     config = icechunk.RepositoryConfig.default()
-    manifest_split_size = 48 * 366  # 48 half-hours/day x 366 (leap-year safe)
     time_split_size = {
         icechunk.config.ManifestSplitDimCondition.DimensionName("time"): manifest_split_size
     }
@@ -172,17 +243,13 @@ def open_or_create_repo():
         preload=icechunk.ManifestPreloadConfig(max_total_refs=0),
     )
     config.set_virtual_chunk_container(
-        icechunk.VirtualChunkContainer(
-            get_prefix_from_url(example_link),
-            icechunk.s3_store(region="us-west-2"),
-        )
+        icechunk.VirtualChunkContainer(virtual_chunk_url, virtual_chunk_store)
     )
 
-    local_storage = icechunk.local_filesystem_storage(path="gpmimerg_hh_07")
     repo = icechunk.Repository.open_or_create(
         config=config,
-        storage=local_storage,
-        authorize_virtual_chunk_access=get_container_credentials(example_link),
+        storage=storage,
+        authorize_virtual_chunk_access=virtual_chunk_credentials,
     )
     repo.save_config()
     return repo

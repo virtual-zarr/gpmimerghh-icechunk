@@ -17,11 +17,17 @@ The ``process_file`` function below matches the shape expected by
 the unit of work VDP will batch + commit. ``write_day`` remains as a local
 convenience for end-to-end testing of 48 consecutive half-hours without VDP.
 """
+from __future__ import annotations
+
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from icechunk import Session
 
 from notebooks import helpers
+
+if TYPE_CHECKING:
+    from obspec_utils.registry import ObjectStoreRegistry
 
 # Epoch used to convert a half-hour timestamp to a time-index into the cube.
 EPOCH = datetime(1998, 1, 1)
@@ -38,7 +44,13 @@ def time_index_for(t: datetime) -> int:
     return seconds // 1800
 
 
-def process_file(file_url: str, session: Session, *, t: datetime | None = None) -> bool:
+def process_file(
+    file_url: str,
+    session: Session,
+    *,
+    t: datetime | None = None,
+    registry: ObjectStoreRegistry | None = None,
+) -> bool:
     """Write one half-hour granule into its region of the store.
 
     Parameters
@@ -50,6 +62,10 @@ def process_file(file_url: str, session: Session, *, t: datetime | None = None) 
         function only stages writes, matching the VDP processor contract.
     t : datetime, optional
         The granule's timestamp. If omitted it is parsed from ``file_url``.
+    registry : ObjectStoreRegistry, optional
+        Forwarded to ``helpers.open_vds_data_only``. Production callers leave
+        this ``None`` (default GES DISC S3 registry); tests pass a
+        ``LocalStore``-backed registry pointing at a fixture file.
     """
     if t is None:
         t = _timestamp_from_url(file_url)
@@ -57,7 +73,7 @@ def process_file(file_url: str, session: Session, *, t: datetime | None = None) 
 
     # data-only opener: coords + bounds are excluded inside the HDF parser
     # itself, so there's nothing to drop after the fact.
-    vds = helpers.open_vds_data_only(file_url)
+    vds = helpers.open_vds_data_only(file_url, registry=registry)
     vds.vz.to_icechunk(
         session.store,
         region={"time": slice(time_idx, time_idx + 1)},
