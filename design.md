@@ -126,7 +126,7 @@ Generating this store means writing references for ~40 million chunks. `virtuali
 
 ## Why region writes (instead of append)
 
-GPM_3IMERGHH filenames are **deterministic** (see [`helpers.url_for`](./notebooks/helpers.py)) — each file maps to exactly one time index, computable from the filename alone. Workers can write all files in parallel, in any order, without opening each one and without commit collisions. Region writes are also idempotent on retry, whereas serial `append_dim` writes have to track ordering to avoid skipped or duplicated indices.
+GPM_3IMERGHH filenames are **deterministic** (see [`helpers.url_for`](./notebooks/helpers.py)) — each file maps to exactly one time index, computable from the filename alone. Workers can write refs in in any order. Region writes are also idempotent on retry, whereas serial `append_dim` writes have to track ordering to avoid skipped or duplicated indices.
 
 ## Three-stage pipeline
 
