@@ -6,11 +6,6 @@ variable is excluded *before* the parser reads it. The resulting vds is
 written straight into ``region={"time": slice(time_idx, time_idx + 1)}`` with
 no further filtering needed.
 
-Excluding every coord + bounds variable is *required* for correctness under
-region writes: leaving `time`, `lon`, `lat`, or `*_bnds` in the per-file vds
-would cause each region write to overwrite the Stage 0 coord arrays
-cell-by-cell (or raise a conflict), depending on alignment.
-
 The ``process_file`` function matches the shape expected by
 ``virtualizarr_processor.typing.VirtualizarrProcessor.process_file`` and is
 the unit of work VDP will batch + commit.
@@ -27,15 +22,12 @@ from notebooks import helpers
 if TYPE_CHECKING:
     from obspec_utils.registry import ObjectStoreRegistry
 
-# Epoch used to convert a half-hour timestamp to a time-index into the cube.
-EPOCH = datetime(1998, 1, 1)
-
 
 def time_index_for(t: datetime) -> int:
     """Half-hour offset from the cube's epoch (1998-01-01 00:00:00 UTC)."""
-    delta = t - EPOCH
+    delta = t - helpers.T0
     if delta < timedelta(0):
-        raise ValueError(f"{t!r} is before the cube epoch {EPOCH!r}")
+        raise ValueError(f"{t!r} is before the cube epoch {helpers.T0!r}")
     seconds = int(delta.total_seconds())
     if seconds % 1800 != 0:
         raise ValueError(f"{t!r} is not aligned to a 30-minute boundary")

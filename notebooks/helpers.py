@@ -26,6 +26,11 @@ STORE_PREFIX = 's3://gesdisc-cumulus-prod-protected/GPM_L3/GPM_3IMERGHH.07'
 EXAMPLE_LINK = f"{STORE_PREFIX}/2025/273/3B-HHR.MS.MRG.3IMERG.20250930-S233000-E235959.1410.V07B.HDF5"
 CREDENTIALS_URL = "https://data.gesdisc.earthdata.nasa.gov/s3credentials"
 
+# TIME VARS
+T0 = datetime(1998, 1, 1)
+T_MINUS_1 = datetime(2025, 10, 1)
+N_TIME = (T_MINUS_1 - T0).days * 48
+
 # Since no NASA Earthdata credentials are specified in this example,
 # environment variables or netrc will be used to locate them in order to
 # obtain S3 credentials from the URL.

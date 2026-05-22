@@ -28,10 +28,10 @@ from template_repo import initialize_repo
 from process_file import process_file, time_index_for
 
 # Small cube to keep tests sub-second.
-WD_NLON = 12          # → 2 lon-chunks of size 6 for the 24-chunk vars
-WD_NLAT = 6
-WD_N_TIME = 48        # one synthetic "day" of half-hours
-WD_T0 = datetime(1998, 1, 1)
+NLON = 12          # → 2 lon-chunks of size 6 for the 24-chunk vars
+NLAT = 6
+N_TIME = 48        # one synthetic "day" of half-hours
+helpers.T0 = datetime(1998, 1, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -39,17 +39,17 @@ WD_T0 = datetime(1998, 1, 1)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def wd_fixture(tmp_path: Path) -> tuple[Path, dict[str, np.ndarray]]:
+def fixture(tmp_path: Path) -> tuple[Path, dict[str, np.ndarray]]:
     """Fixture file + dict of expected per-variable data."""
     path = tmp_path / "fixture.HDF5"
-    expected = _build_fixture(path, nlon=WD_NLON, nlat=WD_NLAT, populate_data=True)
+    expected = _build_fixture(path, nlon=NLON, nlat=NLAT, populate_data=True)
     return path, expected
 
 
 @pytest.fixture
-def wd_initialized_repo(
+def initialized_repo(
     tmp_path: Path,
-    wd_fixture: tuple[Path, dict[str, np.ndarray]],
+    fixture: tuple[Path, dict[str, np.ndarray]],
     local_registry: ObjectStoreRegistry,
 ) -> icechunk.Repository:
     """A repo with the Stage-0 template committed, ready for region writes.
@@ -57,11 +57,11 @@ def wd_initialized_repo(
     Uses the same fixture file as the sample so the cube shape, dtypes,
     chunk layout, and fill values all match the granule we'll then write.
     """
-    fixture_file, _ = wd_fixture
+    fixture_file, _ = fixture
     virtual_chunk_url = f"file://{tmp_path}/"
     repo = helpers.open_or_create_repo(
         storage=icechunk.local_filesystem_storage(path=str(tmp_path / "repo")),
-        manifest_split_size=WD_N_TIME,
+        manifest_split_size=N_TIME,
         virtual_chunk_url=virtual_chunk_url,
         virtual_chunk_store=icechunk.local_filesystem_store(str(tmp_path)),
         # Local filesystem needs no credentials, but the container must still
@@ -75,9 +75,9 @@ def wd_initialized_repo(
     initialize_repo(
         repo=repo,
         sample=sample,
-        n_time=WD_N_TIME,
-        t0=WD_T0,
-        time_chunk=WD_N_TIME,
+        n_time=N_TIME,
+        t0=helpers.T0,
+        time_chunk=N_TIME,
     )
     return repo
 
@@ -87,23 +87,23 @@ def wd_initialized_repo(
 # ---------------------------------------------------------------------------
 
 def test_process_file_writes_at_time_zero(
-    wd_initialized_repo: icechunk.Repository,
-    wd_fixture: tuple[Path, dict[str, np.ndarray]],
+    initialized_repo: icechunk.Repository,
+    fixture: tuple[Path, dict[str, np.ndarray]],
     local_registry: ObjectStoreRegistry,
 ) -> None:
     """``process_file`` with ``t == T0`` puts the granule into time index 0;
     reading it back returns the fixture's data values exactly.
     """
-    fixture_file, expected = wd_fixture
+    fixture_file, expected = fixture
 
-    session = wd_initialized_repo.writable_session("main")
+    session = initialized_repo.writable_session("main")
     ok = process_file(
-        f"file://{fixture_file}", session, t=WD_T0, registry=local_registry
+        f"file://{fixture_file}", session, t=helpers.T0, registry=local_registry
     )
     assert ok is True
-    session.commit(f"wrote {WD_T0.isoformat()}")
+    session.commit(f"wrote {helpers.T0.isoformat()}")
 
-    read = wd_initialized_repo.readonly_session("main")
+    read = initialized_repo.readonly_session("main")
     root = zarr.open_group(store=read.store, mode="r")
 
     for name, data in expected.items():
@@ -118,23 +118,23 @@ def test_process_file_writes_at_time_zero(
 
 
 def test_process_file_writes_at_nonzero_time(
-    wd_initialized_repo: icechunk.Repository,
-    wd_fixture: tuple[Path, dict[str, np.ndarray]],
+    initialized_repo: icechunk.Repository,
+    fixture: tuple[Path, dict[str, np.ndarray]],
     local_registry: ObjectStoreRegistry,
 ) -> None:
     """A timestamp 5 half-hours after T0 lands at time index 5 — not 0 —
     and the surrounding indices remain at fill.
     """
-    fixture_file, expected = wd_fixture
-    t = WD_T0 + timedelta(minutes=30 * 5)
+    fixture_file, expected = fixture
+    t = helpers.T0 + timedelta(minutes=30 * 5)
     expected_idx = time_index_for(t)
     assert expected_idx == 5
 
-    session = wd_initialized_repo.writable_session("main")
+    session = initialized_repo.writable_session("main")
     process_file(f"file://{fixture_file}", session, t=t, registry=local_registry)
     session.commit(f"wrote {t.isoformat()}")
 
-    read = wd_initialized_repo.readonly_session("main")
+    read = initialized_repo.readonly_session("main")
     root = zarr.open_group(store=read.store, mode="r")
 
     precip = root["precipitation"]
@@ -147,13 +147,13 @@ def test_process_file_writes_at_nonzero_time(
     fill = np.float32(precip.fill_value)
     np.testing.assert_array_equal(
         np.asarray(precip[0, :, :]),
-        np.full((WD_NLON, WD_NLAT), fill, dtype="float32"),
+        np.full((NLON, NLAT), fill, dtype="float32"),
     )
 
 
 def test_process_file_does_not_touch_coords(
-    wd_initialized_repo: icechunk.Repository,
-    wd_fixture: tuple[Path, dict[str, np.ndarray]],
+    initialized_repo: icechunk.Repository,
+    fixture: tuple[Path, dict[str, np.ndarray]],
     local_registry: ObjectStoreRegistry,
 ) -> None:
     """
@@ -162,19 +162,19 @@ def test_process_file_does_not_touch_coords(
     fixture file itself contains its own (single-timestep) ``time``, ``lon``,
     ``lat``, and bounds.
     """
-    fixture_file, _ = wd_fixture
+    fixture_file, _ = fixture
 
-    pre = wd_initialized_repo.readonly_session("main")
+    pre = initialized_repo.readonly_session("main")
     pre_root = zarr.open_group(store=pre.store, mode="r")
     time_before = np.asarray(pre_root["time"][:])
     lon_before = np.asarray(pre_root["lon"][:])
     lat_before = np.asarray(pre_root["lat"][:])
 
-    session = wd_initialized_repo.writable_session("main")
-    process_file(f"file://{fixture_file}", session, t=WD_T0, registry=local_registry)
+    session = initialized_repo.writable_session("main")
+    process_file(f"file://{fixture_file}", session, t=helpers.T0, registry=local_registry)
     session.commit("region write")
 
-    post = wd_initialized_repo.readonly_session("main")
+    post = initialized_repo.readonly_session("main")
     post_root = zarr.open_group(store=post.store, mode="r")
     np.testing.assert_array_equal(np.asarray(post_root["time"][:]), time_before)
     np.testing.assert_array_equal(np.asarray(post_root["lon"][:]), lon_before)
@@ -186,20 +186,20 @@ def test_process_file_does_not_touch_coords(
 # ---------------------------------------------------------------------------
 
 def test_time_index_for_aligned() -> None:
-    assert time_index_for(WD_T0) == 0
-    assert time_index_for(WD_T0 + timedelta(minutes=30)) == 1
-    assert time_index_for(WD_T0 + timedelta(days=1)) == 48
+    assert time_index_for(helpers.T0) == 0
+    assert time_index_for(helpers.T0 + timedelta(minutes=30)) == 1
+    assert time_index_for(helpers.T0 + timedelta(days=1)) == 48
     # Same answer regardless of seconds → expressed via aligned datetime.
     assert time_index_for(datetime(1998, 1, 2, 12, 30)) == 73
 
 
 def test_time_index_for_misaligned() -> None:
     with pytest.raises(ValueError, match="30-minute"):
-        time_index_for(WD_T0 + timedelta(minutes=15))
+        time_index_for(helpers.T0 + timedelta(minutes=15))
     with pytest.raises(ValueError, match="30-minute"):
-        time_index_for(WD_T0 + timedelta(seconds=30))
+        time_index_for(helpers.T0 + timedelta(seconds=30))
 
 
 def test_time_index_for_before_epoch_raises() -> None:
     with pytest.raises(ValueError, match="before the cube epoch"):
-        time_index_for(WD_T0 - timedelta(minutes=30))
+        time_index_for(helpers.T0 - timedelta(minutes=30))

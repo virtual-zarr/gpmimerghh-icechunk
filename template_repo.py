@@ -11,13 +11,6 @@ import zarr
 
 from notebooks import helpers
 
-# ---------------------------------------------------------------------------
-# Target time axis
-# ---------------------------------------------------------------------------
-T0 = datetime(1998, 1, 1)
-T_MINUS_1 = datetime(2025, 10, 1)
-N_TIME = (T_MINUS_1 - T0).days * 48
-
 # Coord chunk size = one year of half-hours.
 TIME_CHUNK = 48 * 365  # 17_520
 
@@ -46,8 +39,8 @@ def initialize_repo(
     repo: ic.Repository | None = None,
     sample: xr.Dataset | None = None,
     *,
-    n_time: int = N_TIME,
-    t0: datetime = T0,
+    n_time: int = helpers.N_TIME,
+    t0: datetime = helpers.T0,
     time_chunk: int = TIME_CHUNK,
 ) -> ic.Repository:
     """Open or create the repo and, on first call only, write the coordinate
