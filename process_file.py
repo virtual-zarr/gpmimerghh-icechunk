@@ -1,5 +1,4 @@
-"""Stage 1 — per-file region write into the GPM IMERG HH virtual icechunk
-store.
+"""Per-file region write into the GPM IMERG HH virtual icechunk store.
 
 Each half-hour granule is opened via ``helpers.open_vds_data_only`` so the
 HDF parser only emits the 4 data variables — every coordinate and bounds
@@ -12,10 +11,9 @@ region writes: leaving `time`, `lon`, `lat`, or `*_bnds` in the per-file vds
 would cause each region write to overwrite the Stage 0 coord arrays
 cell-by-cell (or raise a conflict), depending on alignment.
 
-The ``process_file`` function below matches the shape expected by
+The ``process_file`` function matches the shape expected by
 ``virtualizarr_processor.typing.VirtualizarrProcessor.process_file`` and is
-the unit of work VDP will batch + commit. ``write_day`` remains as a local
-convenience for end-to-end testing of 48 consecutive half-hours without VDP.
+the unit of work VDP will batch + commit.
 """
 from __future__ import annotations
 
@@ -91,24 +89,3 @@ def _timestamp_from_url(file_url: str) -> datetime:
     # token "20250930-S233000" → date + start-of-half-hour
     date_part, start_part = filename.split(".")[4].split("-")[:2]
     return datetime.strptime(date_part + start_part[1:], "%Y%m%d%H%M%S")
-
-
-def write_day(day_idx: int) -> None:
-    """Local-only convenience: write a full day (48 half-hours) and commit.
-
-    VDP itself will batch + commit at the SQS-batch level using
-    ``process_file`` directly; this helper exists for one-off dry runs.
-    """
-    repo = helpers.open_or_create_repo()
-    session = repo.writable_session("main")
-
-    base_time = EPOCH + timedelta(days=day_idx)
-    for k in range(48):
-        t = base_time + timedelta(minutes=30 * k)
-        process_file(helpers.url_for(t), session, t=t)
-
-    session.commit(f"Wrote day {base_time}")
-
-
-if __name__ == "__main__":
-    write_day(0)

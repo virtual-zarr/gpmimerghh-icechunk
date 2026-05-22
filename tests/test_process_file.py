@@ -1,4 +1,4 @@
-"""Tests for ``write_day.process_file`` using a tiny on-disk HDF5 fixture
+"""Tests for ``process_file`` using a tiny on-disk HDF5 fixture
 (no S3, no network).
 
 What this test exercises:
@@ -9,7 +9,7 @@ What this test exercises:
   * ``time_index_for`` rejects timestamps that aren't 30-minute aligned.
 
 To run:
-    pytest tests/test_write_day.py -v
+    pytest tests/test_process_file.py -v
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from obspec_utils.registry import ObjectStoreRegistry
 from tests.hdf5_fixtures import _build_fixture
 from notebooks import helpers
 from template_repo import initialize_repo
-from write_day import process_file, time_index_for
+from process_file import process_file, time_index_for
 
 # Small cube to keep tests sub-second.
 WD_NLON = 12          # → 2 lon-chunks of size 6 for the 24-chunk vars
