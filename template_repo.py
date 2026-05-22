@@ -14,14 +14,12 @@ from notebooks import helpers
 # ---------------------------------------------------------------------------
 # Target time axis
 # ---------------------------------------------------------------------------
-N_TIME = 486_480
 T0 = datetime(1998, 1, 1)
+T_MINUS_1 = datetime(2025, 10, 1)
+N_TIME = (T_MINUS_1 - T0).days * 48
 
-# Coord chunk size = one year of half-hours. Matches the manifest split
-# size below so "one year of coord reads" and "one year of data reads" both
-# resolve to a single chunk / a single shard respectively.
+# Coord chunk size = one year of half-hours.
 TIME_CHUNK = 48 * 365  # 17_520
-
 
 def _native_chunks(var) -> tuple:
     """Best-effort chunk-shape lookup for a virtualizarr-loaded variable."""
@@ -39,7 +37,7 @@ def _is_initialized(repo: ic.Repository) -> bool:
     A freshly created Icechunk repo has exactly one ancestor (the root /
     "Repository initialized" commit). Once the full empty arrays have been committed
     there are at least two ancestors. We use ``islice(..., 2)`` so we never
-    walk the full history — the same trick VDP's sample processor uses.
+    walk the full history.
     """
     return len(list(islice(repo.ancestry(branch="main"), 2))) > 1
 
@@ -94,7 +92,7 @@ def initialize_repo(
     nlon = sample.sizes["lon"]
     nlat = sample.sizes["lat"]
 
-    # Write everything directly via zarr — one open_group, no xarray
+    # Write everything directly via zarr
     session = repo.writable_session("main")
     root = zarr.open_group(store=session.store, mode="w-")
 
@@ -135,8 +133,8 @@ def initialize_repo(
         src_chunks = _native_chunks(var)
         if len(src_chunks) != 3:
             continue
+        # first chunk dimension is time, which always has a chunk size of 1 since GPM IMERG HH files only store 1 time step.
         chunks = (1, src_chunks[1], src_chunks[2])
-        # import pdb; pdb.set_trace()
         arr = root.create_array(
             name=name,
             shape=(n_time, nlon, nlat),
@@ -149,7 +147,7 @@ def initialize_repo(
         )
         arr.attrs.update(dict(var.attrs))
 
-    session.commit("init: full shape + coords + native chunk grid (no dask, no xarray)")
+    session.commit("init: full shape + coords + native chunk grids")
     print("Committed initial template.")
     return repo
 
