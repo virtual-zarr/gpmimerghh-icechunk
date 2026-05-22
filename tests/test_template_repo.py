@@ -10,18 +10,17 @@ To run:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-import h5py
 import icechunk
 import numpy as np
 import pytest
 import xarray as xr
 import zarr
 from obspec_utils.registry import ObjectStoreRegistry
-from obstore.store import LocalStore
 
+from tests.hdf5_fixtures import LON_ATTRS, LAT_ATTRS, ROOT_ATTRS, _build_fixture
 from notebooks import helpers
 from template_repo import _is_initialized, initialize_repo
 
@@ -34,147 +33,6 @@ TEST_T0 = datetime(1998, 1, 1)
 TEST_TIME_CHUNK = TEST_N_TIME  # one shard
 
 
-# ---------------------------------------------------------------------------
-# Fixture HDF5 file
-# ---------------------------------------------------------------------------
-
-# Attribute payloads we plant in the fixture and assert on round-trip.
-ROOT_ATTRS = {
-    "Title": "Test fixture mimicking GPM IMERG HH",
-    "DOI": "10.5067/GPM/IMERG/3B-HH/test",
-    "AlgorithmID": "3IMERGHH",
-    "ProductionTime": "2024-01-01T00:00:00Z",
-}
-TIME_ATTRS = {
-    "units": "seconds since 1970-01-01 00:00:00 UTC",
-    "calendar": "julian",
-    "standard_name": "time",
-}
-LON_ATTRS = {
-    "units": "degrees_east",
-    "standard_name": "longitude",
-    "axis": "X",
-}
-LAT_ATTRS = {
-    "units": "degrees_north",
-    "standard_name": "latitude",
-    "axis": "Y",
-}
-PRECIP_ATTRS = {
-    "units": "mm/hr",
-    "DimensionNames": "time,lon,lat",
-    "CodeMissingValue": "-9999.9",
-}
-
-
-def _build_fixture(path: Path, *, nlon: int = TEST_NLON, nlat: int = TEST_NLAT) -> None:
-    """Write an HDF5 file laid out like a single GPM IMERG HH granule.
-
-    The variables, group structure, and attribute names follow the real product
-    (``Grid/precipitation``, ``Grid/lon``, ``Grid/Intermediate``, etc.) so that
-    ``helpers.open_vds_with_coords`` can parse it identically to production.
-
-    HDF5 dimension scales are set on all coord datasets and attached to every
-    data variable so VirtualiZarr can resolve dimension names without falling
-    back to ``phony_dim_N`` placeholders.
-
-    Global attributes are placed on the ``Grid`` group because
-    ``helpers.HDFParser(group='Grid')`` reads attrs from that group only.
-    """
-    chunk_lon = max(1, nlon // 2)  # 24-chunk vars get 2 chunks here
-    plp_chunk_lon = nlon           # 12-chunk var: chunked twice as coarsely
-
-    with h5py.File(path, "w") as f:
-        grid = f.create_group("Grid")
-        # Global attrs live on Grid — that's what HDFParser(group='Grid') reads.
-        for k, v in ROOT_ATTRS.items():
-            grid.attrs[k] = v
-
-        # --- coord dimension scales -------------------------------------
-        lon_values = np.linspace(-179.95, 179.95, nlon, dtype="float32")
-        lat_values = np.linspace(-89.95, 89.95, nlat, dtype="float32")
-
-        time_v = grid.create_dataset("time", data=np.array([0], dtype="int32"))
-        for k, v in TIME_ATTRS.items():
-            time_v.attrs[k] = v
-        time_v.make_scale("time")
-
-        lon_v = grid.create_dataset("lon", data=lon_values)
-        for k, v in LON_ATTRS.items():
-            lon_v.attrs[k] = v
-        lon_v.make_scale("lon")
-
-        lat_v = grid.create_dataset("lat", data=lat_values)
-        for k, v in LAT_ATTRS.items():
-            lat_v.attrs[k] = v
-        lat_v.make_scale("lat")
-
-        # --- bounds (nv is a dim scale; bounds attach their two scales) -
-        nv_v = grid.create_dataset("nv", data=np.arange(2, dtype="int32"))
-        nv_v.make_scale("nv")
-
-        time_bnds = grid.create_dataset(
-            "time_bnds", data=np.array([[0, 1799]], dtype="int32")
-        )
-        time_bnds.dims[0].attach_scale(time_v)
-        time_bnds.dims[1].attach_scale(nv_v)
-
-        lon_edges = np.linspace(-180.0, 180.0, nlon + 1, dtype="float32")
-        lon_bnds = grid.create_dataset(
-            "lon_bnds",
-            data=np.column_stack([lon_edges[:-1], lon_edges[1:]]),
-        )
-        lon_bnds.dims[0].attach_scale(lon_v)
-        lon_bnds.dims[1].attach_scale(nv_v)
-
-        lat_edges = np.linspace(-90.0, 90.0, nlat + 1, dtype="float32")
-        lat_bnds = grid.create_dataset(
-            "lat_bnds",
-            data=np.column_stack([lat_edges[:-1], lat_edges[1:]]),
-        )
-        lat_bnds.dims[0].attach_scale(lat_v)
-        lat_bnds.dims[1].attach_scale(nv_v)
-
-        # --- dropped: aux dim vars + Intermediate subgroup --------------
-        grid.create_dataset("lonv", data=np.arange(2, dtype="int32"))
-        grid.create_dataset("latv", data=np.arange(2, dtype="int32"))
-        intermediate = grid.create_group("Intermediate")
-        intermediate.create_dataset("ignored", data=np.zeros(3, dtype="float32"))
-
-        # --- data variables (virtual) -----------------------------------
-        def _add_data(name: str, dtype: str, chunk_lon: int,
-                      fillvalue, extra_attrs: dict | None = None):
-            ds = grid.create_dataset(
-                name,
-                shape=(1, nlon, nlat),
-                dtype=dtype,
-                chunks=(1, chunk_lon, nlat),
-                # todo(aimee): this is to mimic the missing fill value in GPM IMERG HH files
-                fillvalue=None,
-            )
-            attrs = dict(PRECIP_ATTRS)
-            if extra_attrs:
-                attrs.update(extra_attrs)
-            attrs["_FillValue"] = fillvalue
-            for k, v in attrs.items():
-                ds.attrs[k] = v
-            # Attach dimension scales so VirtualiZarr resolves dim names.
-            ds.dims[0].attach_scale(time_v)
-            ds.dims[1].attach_scale(lon_v)
-            ds.dims[2].attach_scale(lat_v)
-
-        _add_data("precipitation", "float32", chunk_lon, np.float32(-9999.9))
-        _add_data("randomError", "float32", chunk_lon, np.float32(-9999.9))
-        _add_data("precipitationQualityIndex", "float32", chunk_lon, np.float32(-9999.9))
-        _add_data(
-            "probabilityLiquidPrecipitation",
-            "int16",
-            plp_chunk_lon,
-            np.int16(-9999),
-            extra_attrs={"units": "percent"},
-        )
-
-
 @pytest.fixture
 def fixture_file(tmp_path: Path) -> Path:
     """Path to a freshly-built HDF5 fixture for this test."""
@@ -182,13 +40,6 @@ def fixture_file(tmp_path: Path) -> Path:
     _build_fixture(path)
     return path
 
-
-@pytest.fixture
-def local_registry(tmp_path: Path) -> ObjectStoreRegistry:
-    """An ObjectStoreRegistry that resolves file:// URLs anywhere under
-    ``tmp_path`` to a LocalStore.
-    """
-    return ObjectStoreRegistry({f"file://{tmp_path}": LocalStore()})
 
 
 @pytest.fixture
